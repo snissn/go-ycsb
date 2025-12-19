@@ -42,7 +42,7 @@ make
 
 Notice:
 
-+ Minimum supported go version is 1.16.
++ Minimum supported go version is 1.25.5.
 + To use FoundationDB, you must install [client](https://www.foundationdb.org/download/) library at first, now the supported version is 6.2.11.
 + To use RocksDB, you must follow [INSTALL](https://github.com/facebook/rocksdb/blob/master/INSTALL.md) to install RocksDB at first.
 
@@ -93,6 +93,7 @@ Available Commands:
 - Pegasus
 - PostgreSQL / CockroachDB / AlloyDB / Yugabyte
 - RocksDB
+- TreeDB
 - Spanner
 - Sqlite
 - MongoDB
@@ -230,6 +231,27 @@ Common configurations:
 |rocksdb.filter_policy|nil|Sets the filter policy opts reduce disk reads. Many applications will benefit from passing the result of NewBloomFilterPolicy() here|
 |rocksdb.index_type|kBinarySearch|Sets the index type used for this table. __kBinarySearch__: A space efficient index block that is optimized for binary-search-based index. __kHashSearch__: The hash index, if enabled, will do the hash lookup when `Options.prefix_extractor` is provided. __kTwoLevelIndexSearch__: A two-level index implementation. Both levels are binary search indexes|
 |rocksdb.block_align|false|Enable/Disable align data blocks on lesser of page size and block size|
+
+### TreeDB
+
+|field|default value|description|
+|-|-|-|
+|treedb.dir|"/tmp/treedb"|TreeDB data directory|
+|treedb.mode|"cached"|`cached` (write-back) or `backend` (uncached)|
+|treedb.chunk_size|0 (256MB default)|Index chunk size in bytes; 0 uses TreeDB default|
+|treedb.keep_recent|0 (cached->1, backend->10000)|Commit versions to retain before page reuse|
+|treedb.flush_threshold|0 (64MB default)|Cached mode flush threshold in bytes|
+|treedb.prefer_append_alloc|false|Append new index pages instead of freelist reuse|
+|treedb.leaf_fill_ppm|0 (1_000_000)|Leaf fill target (parts-per-million)|
+|treedb.internal_fill_ppm|0 (1_000_000)|Internal node fill target (parts-per-million)|
+|treedb.max_queued_memtables|0 (auto)|Max queued immutable memtables before backpressure|
+|treedb.slowdown_backlog_seconds|0|Backpressure starts when backlog exceeds this many seconds|
+|treedb.stop_backlog_seconds|0|Writers block when backlog exceeds this many seconds|
+|treedb.max_backlog_bytes|0|Absolute cap on flush backlog bytes|
+|treedb.writer_flush_max_memtables|0 (auto)|Max memtables a writer will help flush per op|
+|treedb.writer_flush_max_ms|0|Max milliseconds a writer will help flush per op|
+|treedb.flush_build_concurrency|0 (auto)|Parallelism for building flush batches|
+|treedb.disable_background_prune|false|Disable background pruning (keep on write path)|
 
 ### Spanner
 
