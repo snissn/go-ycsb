@@ -121,6 +121,36 @@ parse_ops() {
 results_csv="$RESULTS_DIR/results.csv"
 printf "scenario,engine,phase,op,ops\n" > "$results_csv"
 
+write_markdown() {
+  local out="$1"
+  declare -A ops_map
+  while IFS=, read -r scenario engine phase op ops; do
+    if [[ "$scenario" == "scenario" ]]; then
+      continue
+    fi
+    ops_map["$phase|$scenario|$engine|$op"]="$ops"
+  done < "$results_csv"
+
+  {
+    printf "# Results\n\n"
+    for phase in load run; do
+      printf "## %s\n\n" "$phase"
+      printf "|scenario|engine|INSERT OPS|READ OPS|UPDATE OPS|TOTAL OPS|\n"
+      printf "|-|-|-|-|-|-|\n"
+      for scenario in $SCENARIOS; do
+        for engine in $ENGINES; do
+          insert="${ops_map[$phase|$scenario|$engine|INSERT]:--}"
+          read_ops="${ops_map[$phase|$scenario|$engine|READ]:--}"
+          update="${ops_map[$phase|$scenario|$engine|UPDATE]:--}"
+          total="${ops_map[$phase|$scenario|$engine|TOTAL]:--}"
+          printf "|%s|%s|%s|%s|%s|%s|\n" "$scenario" "$engine" "$insert" "$read_ops" "$update" "$total"
+        done
+      done
+      printf "\n"
+    done
+  } > "$out"
+}
+
 echo "Results dir: $RESULTS_DIR"
 
 for scenario in $SCENARIOS; do
@@ -169,4 +199,8 @@ for scenario in $SCENARIOS; do
   done
  done
 
+results_md="$RESULTS_DIR/results.md"
+write_markdown "$results_md"
+
 echo "Summary CSV: $results_csv"
+echo "Summary Markdown: $results_md"

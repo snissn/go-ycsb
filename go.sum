@@ -411,6 +411,8 @@ github.com/smartystreets/goconvey v0.0.0-20190330032615-68dc04aab96a h1:pa8hGb/2
 github.com/smartystreets/goconvey v0.0.0-20190330032615-68dc04aab96a/go.mod h1:syvi0/a8iFYH4r/RixwvyeAJjdLS9QV7WQ/tjFTllLA=
 github.com/snissn/gomap v0.0.0-20251218232632-1ef19e004deb h1:7jY8cUM7gymATY1DpucSyRnKNjIvxSHTVvVJpQAbJvI=
 github.com/snissn/gomap v0.0.0-20251218232632-1ef19e004deb/go.mod h1:F9Wwk6RrQ6JaUM2TFIJ4X6g1pQLl7WXbY2xQDiRbP7U=
+github.com/snissn/gomap v0.0.0-20251219024022-7004c998fd2c h1:2YXk4P+tjWWUQEmE76G84gxeFnnCyW9Sl1LSYNJBoOQ=
+github.com/snissn/gomap v0.0.0-20251219024022-7004c998fd2c/go.mod h1:F9Wwk6RrQ6JaUM2TFIJ4X6g1pQLl7WXbY2xQDiRbP7U=
 github.com/soheilhy/cmux v0.1.4/go.mod h1:IM3LyeVVIOuxMH7sFAkER9+bJ4dT7Ms6E4xg4kGIyLM=
 github.com/spaolacci/murmur3 v0.0.0-20180118202830-f09979ecbc72/go.mod h1:JwIasOWyU6f++ZhiEuf87xNszmSA2myDM2Kzu9HwQUA=
 github.com/spf13/afero v1.1.2/go.mod h1:j4pytiNVoe2o6bmDsKpLACNPDBIoEAkihy7loJ1B0CQ=

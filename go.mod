@@ -46,7 +46,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/feature/dynamodb/expression v1.4.26
 	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.17.1
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.27.0
-	github.com/snissn/gomap v0.0.0-20251218232632-1ef19e004deb
+	github.com/snissn/gomap v0.0.0-20251219024022-7004c998fd2c
 	go.etcd.io/etcd/client/pkg/v3 v3.5.2
 	go.etcd.io/etcd/client/v3 v3.5.2
 	go.sia.tech/gofakes3 v0.0.1
