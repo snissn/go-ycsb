@@ -144,6 +144,18 @@ func (db *treeDB) Read(ctx context.Context, table string, key string, fields []s
 	return db.r.Decode(row, fields)
 }
 
+func (db *treeDB) BatchRead(ctx context.Context, table string, keys []string, fields []string) ([]map[string][]byte, error) {
+	res := make([]map[string][]byte, len(keys))
+	for i, key := range keys {
+		values, err := db.Read(ctx, table, key, fields)
+		if err != nil {
+			return nil, err
+		}
+		res[i] = values
+	}
+	return res, nil
+}
+
 func (db *treeDB) Scan(ctx context.Context, table string, startKey string, count int, fields []string) ([]map[string][]byte, error) {
 	res := make([]map[string][]byte, count)
 	rowStartKey := db.getRowKey(table, startKey)
@@ -197,6 +209,37 @@ func (db *treeDB) Update(ctx context.Context, table string, key string, values m
 	return db.db.Set(rowKey, buf)
 }
 
+func (db *treeDB) BatchUpdate(ctx context.Context, table string, keys []string, values []map[string][]byte) error {
+	batch := db.db.NewBatch()
+	defer batch.Close()
+
+	for i, key := range keys {
+		m, err := db.Read(ctx, table, key, nil)
+		if err != nil {
+			return err
+		}
+		for field, value := range values[i] {
+			m[field] = value
+		}
+
+		buf := db.bufPool.Get()
+		buf, err = db.r.Encode(buf, m)
+		if err != nil {
+			db.bufPool.Put(buf)
+			return err
+		}
+		row := append([]byte(nil), buf...)
+		db.bufPool.Put(buf)
+
+		rowKey := db.getRowKey(table, key)
+		if err := batch.Set(rowKey, row); err != nil {
+			return err
+		}
+	}
+
+	return batch.Write()
+}
+
 func (db *treeDB) Insert(ctx context.Context, table string, key string, values map[string][]byte) error {
 	buf := db.bufPool.Get()
 	defer func() {
@@ -211,9 +254,46 @@ func (db *treeDB) Insert(ctx context.Context, table string, key string, values m
 	return db.db.Set(rowKey, buf)
 }
 
+func (db *treeDB) BatchInsert(ctx context.Context, table string, keys []string, values []map[string][]byte) error {
+	batch := db.db.NewBatch()
+	defer batch.Close()
+
+	for i, key := range keys {
+		buf := db.bufPool.Get()
+		buf, err := db.r.Encode(buf, values[i])
+		if err != nil {
+			db.bufPool.Put(buf)
+			return err
+		}
+		row := append([]byte(nil), buf...)
+		db.bufPool.Put(buf)
+
+		rowKey := db.getRowKey(table, key)
+		if err := batch.Set(rowKey, row); err != nil {
+			return err
+		}
+	}
+
+	return batch.Write()
+}
+
 func (db *treeDB) Delete(ctx context.Context, table string, key string) error {
 	rowKey := db.getRowKey(table, key)
 	return db.db.Delete(rowKey)
+}
+
+func (db *treeDB) BatchDelete(ctx context.Context, table string, keys []string) error {
+	batch := db.db.NewBatch()
+	defer batch.Close()
+
+	for _, key := range keys {
+		rowKey := db.getRowKey(table, key)
+		if err := batch.Delete(rowKey); err != nil {
+			return err
+		}
+	}
+
+	return batch.Write()
 }
 
 func init() {

@@ -26,7 +26,7 @@ import (
 	"github.com/pingcap/go-ycsb/pkg/ycsb"
 )
 
-//  properties
+// properties
 const (
 	badgerDir                     = "badger.dir"
 	badgerValueDir                = "badger.valuedir"
@@ -165,6 +165,30 @@ func (db *badgerDB) Read(ctx context.Context, table string, key string, fields [
 	return m, err
 }
 
+func (db *badgerDB) BatchRead(ctx context.Context, table string, keys []string, fields []string) ([]map[string][]byte, error) {
+	res := make([]map[string][]byte, len(keys))
+	err := db.db.View(func(txn *badger.Txn) error {
+		for i, key := range keys {
+			rowKey := db.getRowKey(table, key)
+			item, err := txn.Get(rowKey)
+			if err != nil {
+				return err
+			}
+			row, err := item.Value()
+			if err != nil {
+				return err
+			}
+			m, err := db.r.Decode(row, fields)
+			if err != nil {
+				return err
+			}
+			res[i] = m
+		}
+		return nil
+	})
+	return res, err
+}
+
 func (db *badgerDB) Scan(ctx context.Context, table string, startKey string, count int, fields []string) ([]map[string][]byte, error) {
 	res := make([]map[string][]byte, count)
 	err := db.db.View(func(txn *badger.Txn) error {
@@ -231,6 +255,46 @@ func (db *badgerDB) Update(ctx context.Context, table string, key string, values
 	return err
 }
 
+func (db *badgerDB) BatchUpdate(ctx context.Context, table string, keys []string, values []map[string][]byte) error {
+	err := db.db.Update(func(txn *badger.Txn) error {
+		for i, key := range keys {
+			rowKey := db.getRowKey(table, key)
+			item, err := txn.Get(rowKey)
+			if err != nil {
+				return err
+			}
+
+			row, err := item.Value()
+			if err != nil {
+				return err
+			}
+
+			data, err := db.r.Decode(row, nil)
+			if err != nil {
+				return err
+			}
+
+			for field, value := range values[i] {
+				data[field] = value
+			}
+
+			buf := db.bufPool.Get()
+			buf, err = db.r.Encode(buf, data)
+			if err != nil {
+				db.bufPool.Put(buf)
+				return err
+			}
+			err = txn.Set(rowKey, buf)
+			db.bufPool.Put(buf)
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	return err
+}
+
 func (db *badgerDB) Insert(ctx context.Context, table string, key string, values map[string][]byte) error {
 	err := db.db.Update(func(txn *badger.Txn) error {
 		rowKey := db.getRowKey(table, key)
@@ -250,11 +314,45 @@ func (db *badgerDB) Insert(ctx context.Context, table string, key string, values
 	return err
 }
 
+func (db *badgerDB) BatchInsert(ctx context.Context, table string, keys []string, values []map[string][]byte) error {
+	err := db.db.Update(func(txn *badger.Txn) error {
+		for i, key := range keys {
+			rowKey := db.getRowKey(table, key)
+
+			buf := db.bufPool.Get()
+			buf, err := db.r.Encode(buf, values[i])
+			if err != nil {
+				db.bufPool.Put(buf)
+				return err
+			}
+			err = txn.Set(rowKey, buf)
+			db.bufPool.Put(buf)
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	return err
+}
+
 func (db *badgerDB) Delete(ctx context.Context, table string, key string) error {
 	err := db.db.Update(func(txn *badger.Txn) error {
 		return txn.Delete(db.getRowKey(table, key))
 	})
 
+	return err
+}
+
+func (db *badgerDB) BatchDelete(ctx context.Context, table string, keys []string) error {
+	err := db.db.Update(func(txn *badger.Txn) error {
+		for _, key := range keys {
+			if err := txn.Delete(db.getRowKey(table, key)); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 	return err
 }
 

@@ -5,9 +5,11 @@ ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 
 GO_YCSB=${GO_YCSB:-"$ROOT/bin/go-ycsb"}
 RESULTS_DIR=${RESULTS_DIR:-"$ROOT/bench-results/treedb-matrix-$(date +%Y%m%d-%H%M%S)"}
-BASE_DIR=${BASE_DIR:-"/tmp/go-ycsb-matrix"}
+BASE_DIR=${BASE_DIR:-"./bench-data"}
 RECORDCOUNT=${RECORDCOUNT:-1000000}
 OPERATIONCOUNT=${OPERATIONCOUNT:-1000000}
+SCAN_LONG_RECORDCOUNT=${SCAN_LONG_RECORDCOUNT:-}
+SCAN_LONG_OPERATIONCOUNT=${SCAN_LONG_OPERATIONCOUNT:-}
 ENGINES=${ENGINES:-"treedb badger"}
 SCENARIOS=${SCENARIOS:-"baseline read_heavy_skew update_heavy_skew read_only read_latest scan_short scan_long large_values small_values"}
 
@@ -94,9 +96,9 @@ parse_ops() {
   local file="$1" scenario="$2" engine="$3" phase="$4" out="$5"
   awk -v scenario="$scenario" -v engine="$engine" -v phase="$phase" '
     BEGIN {
-      n = split("INSERT READ UPDATE TOTAL", order, " ")
+      n = split("INSERT READ UPDATE SCAN TOTAL", order, " ")
     }
-    $1 ~ /^(INSERT|READ|UPDATE|TOTAL)$/ {
+    $1 ~ /^(INSERT|READ|UPDATE|SCAN|TOTAL)$/ {
       op = $1
       for (i = 1; i <= NF; i++) {
         if ($i == "OPS:") {
@@ -133,17 +135,18 @@ write_markdown() {
 
   {
     printf "# Results\n\n"
-    for phase in load run; do
+      for phase in load run; do
       printf "## %s\n\n" "$phase"
-      printf "|scenario|engine|INSERT OPS|READ OPS|UPDATE OPS|TOTAL OPS|\n"
-      printf "|-|-|-|-|-|-|\n"
+      printf "|scenario|engine|INSERT OPS|READ OPS|UPDATE OPS|SCAN OPS|TOTAL OPS|\n"
+      printf "|-|-|-|-|-|-|-|\n"
       for scenario in $SCENARIOS; do
         for engine in $ENGINES; do
           insert="${ops_map[$phase|$scenario|$engine|INSERT]:--}"
           read_ops="${ops_map[$phase|$scenario|$engine|READ]:--}"
           update="${ops_map[$phase|$scenario|$engine|UPDATE]:--}"
+          scan_ops="${ops_map[$phase|$scenario|$engine|SCAN]:--}"
           total="${ops_map[$phase|$scenario|$engine|TOTAL]:--}"
-          printf "|%s|%s|%s|%s|%s|%s|\n" "$scenario" "$engine" "$insert" "$read_ops" "$update" "$total"
+          printf "|%s|%s|%s|%s|%s|%s|%s|\n" "$scenario" "$engine" "$insert" "$read_ops" "$update" "$scan_ops" "$total"
         done
       done
       printf "\n"
@@ -167,13 +170,23 @@ for scenario in $SCENARIOS; do
     if [[ -n "$db_extra" ]]; then
       read -r -a db_extra_args <<<"$db_extra"
     fi
+    scenario_recordcount="$RECORDCOUNT"
+    scenario_operationcount="$OPERATIONCOUNT"
+    if [[ "$scenario" == "scan_long" ]]; then
+      if [[ -n "$SCAN_LONG_RECORDCOUNT" ]]; then
+        scenario_recordcount="$SCAN_LONG_RECORDCOUNT"
+      fi
+      if [[ -n "$SCAN_LONG_OPERATIONCOUNT" ]]; then
+        scenario_operationcount="$SCAN_LONG_OPERATIONCOUNT"
+      fi
+    fi
 
     echo "=== $engine / $scenario : load ==="
     set -x
     "$GO_YCSB" load "$db" \
       "${load_args[@]}" \
-      -p "recordcount=$RECORDCOUNT" \
-      -p "operationcount=$RECORDCOUNT" \
+      -p "recordcount=$scenario_recordcount" \
+      -p "operationcount=$scenario_recordcount" \
       -p "dropdata=true" \
       -p "$db_prop=$data_dir" \
       "${db_extra_args[@]}" \
@@ -187,8 +200,8 @@ for scenario in $SCENARIOS; do
     set -x
     "$GO_YCSB" run "$db" \
       "${run_args[@]}" \
-      -p "recordcount=$RECORDCOUNT" \
-      -p "operationcount=$OPERATIONCOUNT" \
+      -p "recordcount=$scenario_recordcount" \
+      -p "operationcount=$scenario_operationcount" \
       -p "$db_prop=$data_dir" \
       "${db_extra_args[@]}" \
       "${common_props[@]}" \
