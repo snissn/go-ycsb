@@ -76,6 +76,8 @@ import (
 	_ "github.com/pingcap/go-ycsb/db/etcd"
 	// Register dynamodb
 	_ "github.com/pingcap/go-ycsb/db/dynamodb"
+	// Register TreeDB nativewire database
+	_ "github.com/pingcap/go-ycsb/db/treedb"
 	// Register s3 database
 	_ "github.com/pingcap/go-ycsb/db/s3"
 )
