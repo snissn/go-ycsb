@@ -101,6 +101,7 @@ const (
 const (
 	wireDocumentFormatDefault uint64 = 0
 	wireDocumentFormatJSON    uint64 = 1
+	wireDocumentFormatBSON    uint64 = 2
 )
 
 const (
@@ -280,12 +281,12 @@ func (c *nativeWireClient) CurrentCatalogVersion(ctx context.Context) (uint64, e
 	return version, nil
 }
 
-func (c *nativeWireClient) CreateCollection(ctx context.Context, name string, withKeyIndex bool, keyField string) error {
+func (c *nativeWireClient) CreateCollection(ctx context.Context, name string, withKeyIndex bool, keyField string, documentFormat uint64) error {
 	guard, err := c.replicatedMetadataGuard(ctx, "create_collection")
 	if err != nil {
 		return err
 	}
-	sections := append(guard, wireSection{ID: wireSectionCollectionMeta, Bytes: encodeCollectionMeta(name, withKeyIndex, keyField)})
+	sections := append(guard, wireSection{ID: wireSectionCollectionMeta, Bytes: encodeCollectionMeta(name, withKeyIndex, keyField, documentFormat)})
 	response, err := c.command(ctx, 0, wireCommandCreateCollection, 0, sections)
 	if err != nil {
 		c.clearCatalogVersionOnMismatch(err)
@@ -411,10 +412,10 @@ func (c *nativeWireClient) GetMany(ctx context.Context, handle uint64, ids [][]b
 	return docs, present, nil
 }
 
-func (c *nativeWireClient) InsertBatch(ctx context.Context, handle uint64, ids, docs [][]byte, ack uint64) error {
+func (c *nativeWireClient) InsertBatch(ctx context.Context, handle uint64, ids, docs [][]byte, documentFormat uint64, ack uint64) error {
 	return c.mutationWithRetry(ctx, "insert_batch", func(guard []wireSection) ([]wireSection, error) {
 		c.requestMu.Lock()
-		body, err := appendInsertBatchBody(c.requestBody[:0], handle, ids, docs, ack, wireCommandFlagOmitResultIDs, guard)
+		body, err := appendInsertBatchBody(c.requestBody[:0], handle, ids, docs, documentFormat, ack, wireCommandFlagOmitResultIDs, guard)
 		if err != nil {
 			c.requestMu.Unlock()
 			return nil, err
@@ -426,11 +427,11 @@ func (c *nativeWireClient) InsertBatch(ctx context.Context, handle uint64, ids, 
 	})
 }
 
-func (c *nativeWireClient) ReplaceBatch(ctx context.Context, handle uint64, ids, docs [][]byte, ack uint64) error {
+func (c *nativeWireClient) ReplaceBatch(ctx context.Context, handle uint64, ids, docs [][]byte, documentFormat uint64, ack uint64) error {
 	return c.mutationWithRetry(ctx, "replace_batch", func(guard []wireSection) ([]wireSection, error) {
 		sections := append(guard,
 			collectionHandleRef(handle),
-			wireSection{ID: wireSectionDocumentFormat, Bytes: binary.AppendUvarint(nil, wireDocumentFormatJSON)},
+			wireSection{ID: wireSectionDocumentFormat, Bytes: binary.AppendUvarint(nil, documentFormat)},
 			wireSection{ID: wireSectionDocumentIDs, Bytes: appendWireByteVector(nil, ids...)},
 			wireSection{ID: wireSectionDocuments, Bytes: appendWireByteVector(nil, docs...)},
 			wireSection{ID: wireSectionReplacementMode, Bytes: binary.AppendUvarint(nil, 1)},
@@ -747,13 +748,13 @@ func appendGetManyBody(dst []byte, handle uint64, ids [][]byte) ([]byte, error) 
 	return appendWireSections(dst, sections)
 }
 
-func appendInsertBatchBody(dst []byte, handle uint64, ids, docs [][]byte, ack uint64, commandFlags uint64, guard []wireSection) ([]byte, error) {
+func appendInsertBatchBody(dst []byte, handle uint64, ids, docs [][]byte, documentFormat uint64, ack uint64, commandFlags uint64, guard []wireSection) ([]byte, error) {
 	sections := make([]wireSection, 0, len(guard)+6)
 	sections = append(sections, wireSection{ID: wireSectionCommandHeader, Bytes: appendWireCommandHeader(nil, wireCommandInsertBatch, 1, commandFlags)})
 	sections = append(sections, guard...)
 	sections = append(sections,
 		collectionHandleRef(handle),
-		wireSection{ID: wireSectionDocumentFormat, Bytes: binary.AppendUvarint(nil, wireDocumentFormatJSON)},
+		wireSection{ID: wireSectionDocumentFormat, Bytes: binary.AppendUvarint(nil, documentFormat)},
 		wireSection{ID: wireSectionDocumentIDs, Bytes: appendWireByteVector(nil, ids...)},
 		wireSection{ID: wireSectionDocuments, Bytes: appendWireByteVector(nil, docs...)},
 	)
@@ -806,21 +807,21 @@ func collectionHandleRef(handle uint64) wireSection {
 	return wireSection{ID: wireSectionCollectionRef, Bytes: payload}
 }
 
-func encodeCollectionMeta(name string, withKeyIndex bool, keyField string) []byte {
-	dst := binary.AppendUvarint(nil, 2) // collection_meta version
-	dst = appendWireString(dst, name)   // name
-	dst = binary.AppendUvarint(dst, 1)  // JSON document_format
-	dst = binary.AppendUvarint(dst, 0)  // default data root storage
-	dst = binary.AppendUvarint(dst, 0)  // default index root storage
-	dst = appendWireBool(dst, false)    // allow array values in index
-	dst = appendWireBool(dst, false)    // disable indexed write memtables
-	dst = appendWireBool(dst, false)    // buffered indexed writes
-	dst = binary.AppendVarint(dst, 0)   // buffered indexed max docs
-	dst = binary.AppendVarint(dst, 0)   // buffered indexed max bytes
-	dst = binary.AppendVarint(dst, 0)   // buffered indexed max root runs
-	dst = appendWireBool(dst, false)    // async flush
-	dst = appendWireBool(dst, false)    // overlay roots
-	dst = binary.AppendVarint(dst, 0)   // async flush max queued units
+func encodeCollectionMeta(name string, withKeyIndex bool, keyField string, documentFormat uint64) []byte {
+	dst := binary.AppendUvarint(nil, 2)             // collection_meta version
+	dst = appendWireString(dst, name)               // name
+	dst = binary.AppendUvarint(dst, documentFormat) // document_format
+	dst = binary.AppendUvarint(dst, 0)              // default data root storage
+	dst = binary.AppendUvarint(dst, 0)              // default index root storage
+	dst = appendWireBool(dst, false)                // allow array values in index
+	dst = appendWireBool(dst, false)                // disable indexed write memtables
+	dst = appendWireBool(dst, false)                // buffered indexed writes
+	dst = binary.AppendVarint(dst, 0)               // buffered indexed max docs
+	dst = binary.AppendVarint(dst, 0)               // buffered indexed max bytes
+	dst = binary.AppendVarint(dst, 0)               // buffered indexed max root runs
+	dst = appendWireBool(dst, false)                // async flush
+	dst = appendWireBool(dst, false)                // overlay roots
+	dst = binary.AppendVarint(dst, 0)               // async flush max queued units
 	if withKeyIndex && keyField != "" {
 		dst = binary.AppendUvarint(dst, 1) // index count
 		dst = appendIndexDefinitionNoVersion(dst, keyIndexName, keyField, true)

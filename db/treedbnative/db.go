@@ -14,28 +14,32 @@ import (
 	"github.com/magiconair/properties"
 	"github.com/pingcap/go-ycsb/pkg/prop"
 	"github.com/pingcap/go-ycsb/pkg/ycsb"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/bsontype"
 )
 
 const (
-	treedbNetworkProp          = "treedb.network"
-	treedbAddressProp          = "treedb.address"
-	treedbAddrProp             = "treedb.addr"
-	treedbDialTimeoutProp      = "treedb.dial_timeout"
-	treedbOpTimeoutProp        = "treedb.operation_timeout"
-	treedbAutoCreateProp       = "treedb.autocreate"
-	treedbCreateKeyIndexProp   = "treedb.create_key_index"
-	treedbUseScanIndexProp     = "treedb.use_scan_index"
-	treedbKeyFieldProp         = "treedb.key_field"
-	treedbScanBatchSizeProp    = "treedb.scan_batch_size"
-	treedbAckProp              = "treedb.ack"
-	treedbFlushOnCloseProp     = "treedb.flush_on_close"
-	treedbDefaultNetwork       = "tcp"
-	treedbDefaultAddress       = "127.0.0.1:7100"
-	treedbDefaultDialTimeout   = "2s"
-	treedbDefaultOpTimeout     = "0s"
-	treedbDefaultKeyField      = "_ycsb_key"
-	treedbDefaultScanBatchSize = 1024
-	treedbDefaultFlushOnClose  = true
+	treedbNetworkProp           = "treedb.network"
+	treedbAddressProp           = "treedb.address"
+	treedbAddrProp              = "treedb.addr"
+	treedbDialTimeoutProp       = "treedb.dial_timeout"
+	treedbOpTimeoutProp         = "treedb.operation_timeout"
+	treedbAutoCreateProp        = "treedb.autocreate"
+	treedbCreateKeyIndexProp    = "treedb.create_key_index"
+	treedbUseScanIndexProp      = "treedb.use_scan_index"
+	treedbKeyFieldProp          = "treedb.key_field"
+	treedbScanBatchSizeProp     = "treedb.scan_batch_size"
+	treedbAckProp               = "treedb.ack"
+	treedbFlushOnCloseProp      = "treedb.flush_on_close"
+	treedbDocumentFormatProp    = "treedb.document_format"
+	treedbDefaultNetwork        = "tcp"
+	treedbDefaultAddress        = "127.0.0.1:7100"
+	treedbDefaultDialTimeout    = "2s"
+	treedbDefaultOpTimeout      = "0s"
+	treedbDefaultKeyField       = "_ycsb_key"
+	treedbDefaultScanBatchSize  = 1024
+	treedbDefaultFlushOnClose   = true
+	treedbDefaultDocumentFormat = "bson"
 
 	keyIndexName = "_ycsb_key_1"
 )
@@ -58,6 +62,7 @@ type treedbDB struct {
 	scanBatchSize  int
 	ack            uint64
 	flushOnClose   bool
+	documentFormat uint64
 
 	prepareMu sync.Mutex
 	prepared  map[string]struct{}
@@ -96,6 +101,10 @@ func (treedbCreator) Create(p *properties.Properties) (ycsb.DB, error) {
 	if err != nil {
 		return nil, err
 	}
+	documentFormat, err := parseDocumentFormat(p.GetString(treedbDocumentFormatProp, treedbDefaultDocumentFormat))
+	if err != nil {
+		return nil, err
+	}
 	address := p.GetString(treedbAddressProp, "")
 	if address == "" {
 		address = p.GetString(treedbAddrProp, treedbDefaultAddress)
@@ -112,6 +121,7 @@ func (treedbCreator) Create(p *properties.Properties) (ycsb.DB, error) {
 		scanBatchSize:  p.GetInt(treedbScanBatchSizeProp, treedbDefaultScanBatchSize),
 		ack:            ack,
 		flushOnClose:   p.GetBool(treedbFlushOnCloseProp, treedbDefaultFlushOnClose),
+		documentFormat: documentFormat,
 		prepared:       make(map[string]struct{}),
 		clients:        make(map[*nativeWireClient]struct{}),
 	}
@@ -282,7 +292,7 @@ func (db *treedbDB) Update(ctx context.Context, table string, key string, values
 	if err != nil {
 		return err
 	}
-	return client.ReplaceBatch(ctx, handle, keysToIDs([]string{key}), [][]byte{doc}, db.ack)
+	return client.ReplaceBatch(ctx, handle, keysToIDs([]string{key}), [][]byte{doc}, db.documentFormat, db.ack)
 }
 
 func (db *treedbDB) BatchUpdate(ctx context.Context, table string, keys []string, values []map[string][]byte) error {
@@ -323,7 +333,7 @@ func (db *treedbDB) BatchUpdate(ctx context.Context, table string, keys []string
 			return err
 		}
 	}
-	return client.ReplaceBatch(ctx, handle, ids, replacements, db.ack)
+	return client.ReplaceBatch(ctx, handle, ids, replacements, db.documentFormat, db.ack)
 }
 
 func (db *treedbDB) Insert(ctx context.Context, table string, key string, values map[string][]byte) error {
@@ -338,7 +348,7 @@ func (db *treedbDB) Insert(ctx context.Context, table string, key string, values
 	if err != nil {
 		return err
 	}
-	err = client.InsertBatch(ctx, handle, keysToIDs([]string{key}), [][]byte{doc}, db.ack)
+	err = client.InsertBatch(ctx, handle, keysToIDs([]string{key}), [][]byte{doc}, db.documentFormat, db.ack)
 	if err != nil {
 		db.logOperationError("insert", table, key, err)
 	}
@@ -371,7 +381,7 @@ func (db *treedbDB) BatchInsert(ctx context.Context, table string, keys []string
 			return err
 		}
 	}
-	err = client.InsertBatch(ctx, handle, ids, docs, db.ack)
+	err = client.InsertBatch(ctx, handle, ids, docs, db.documentFormat, db.ack)
 	if err != nil {
 		key := ""
 		if len(keys) > 0 {
@@ -538,7 +548,7 @@ func (db *treedbDB) prepareCollection(ctx context.Context, table string) error {
 		if !db.autoCreate {
 			return err
 		}
-		if createErr := client.CreateCollection(ctx, table, db.createKeyIndex, db.keyField); createErr != nil {
+		if createErr := client.CreateCollection(ctx, table, db.createKeyIndex, db.keyField, db.documentFormat); createErr != nil {
 			if _, retryErr := client.OpenCollection(ctx, table); retryErr != nil {
 				return createErr
 			}
@@ -694,6 +704,17 @@ func (db *treedbDB) scanByCursor(ctx context.Context, client *nativeWireClient, 
 }
 
 func (db *treedbDB) encodeRow(key string, values map[string][]byte) ([]byte, error) {
+	switch db.documentFormat {
+	case wireDocumentFormatBSON:
+		return db.encodeRowBSON(key, values)
+	case wireDocumentFormatJSON:
+		return db.encodeRowJSON(key, values)
+	default:
+		return nil, fmt.Errorf("treedb: unsupported document format %d", db.documentFormat)
+	}
+}
+
+func (db *treedbDB) encodeRowJSON(key string, values map[string][]byte) ([]byte, error) {
 	row := make(map[string]interface{}, len(values)+1)
 	for field, value := range values {
 		if field == db.keyField {
@@ -705,7 +726,30 @@ func (db *treedbDB) encodeRow(key string, values map[string][]byte) ([]byte, err
 	return json.Marshal(row)
 }
 
+func (db *treedbDB) encodeRowBSON(key string, values map[string][]byte) ([]byte, error) {
+	row := make(bson.D, 0, len(values)+1)
+	row = append(row, bson.E{Key: db.keyField, Value: key})
+	for field, value := range values {
+		if field == db.keyField {
+			continue
+		}
+		row = append(row, bson.E{Key: field, Value: value})
+	}
+	return bson.Marshal(row)
+}
+
 func (db *treedbDB) decodeRow(doc []byte, fields []string) (map[string][]byte, error) {
+	switch db.documentFormat {
+	case wireDocumentFormatBSON:
+		return db.decodeRowBSON(doc, fields)
+	case wireDocumentFormatJSON:
+		return db.decodeRowJSON(doc, fields)
+	default:
+		return nil, fmt.Errorf("treedb: unsupported document format %d", db.documentFormat)
+	}
+}
+
+func (db *treedbDB) decodeRowJSON(doc []byte, fields []string) (map[string][]byte, error) {
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(doc, &raw); err != nil {
 		return nil, err
@@ -732,6 +776,50 @@ func (db *treedbDB) decodeRow(doc []byte, fields []string) (map[string][]byte, e
 			continue
 		}
 		out[field] = append([]byte(nil), encoded...)
+	}
+	return out, nil
+}
+
+func (db *treedbDB) decodeRowBSON(doc []byte, fields []string) (map[string][]byte, error) {
+	raw := bson.Raw(doc)
+	if err := raw.Validate(); err != nil {
+		return nil, err
+	}
+	elements, err := raw.Elements()
+	if err != nil {
+		return nil, err
+	}
+	wanted := fieldSet(fields)
+	out := make(map[string][]byte, len(elements))
+	for _, element := range elements {
+		field := element.Key()
+		if field == db.keyField {
+			continue
+		}
+		if wanted != nil {
+			if _, ok := wanted[field]; !ok {
+				continue
+			}
+		}
+		value := element.Value()
+		switch value.Type {
+		case bsontype.Binary:
+			_, data, ok := value.BinaryOK()
+			if !ok {
+				return nil, fmt.Errorf("treedb: invalid BSON binary value for field %q", field)
+			}
+			out[field] = append([]byte(nil), data...)
+		case bsontype.String:
+			text, ok := value.StringValueOK()
+			if !ok {
+				return nil, fmt.Errorf("treedb: invalid BSON string value for field %q", field)
+			}
+			out[field] = []byte(text)
+		case bsontype.Null:
+			out[field] = nil
+		default:
+			out[field] = append([]byte(nil), value.Value...)
+		}
 	}
 	return out, nil
 }
@@ -779,6 +867,17 @@ func parseAckPolicy(raw string) (uint64, error) {
 		return wireAckSynced, nil
 	default:
 		return 0, fmt.Errorf("treedb: unsupported %s=%q", treedbAckProp, raw)
+	}
+}
+
+func parseDocumentFormat(raw string) (uint64, error) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "", "bson", "binary":
+		return wireDocumentFormatBSON, nil
+	case "json":
+		return wireDocumentFormatJSON, nil
+	default:
+		return 0, fmt.Errorf("treedb: invalid %s=%q: expected bson or json", treedbDocumentFormatProp, raw)
 	}
 }
 
