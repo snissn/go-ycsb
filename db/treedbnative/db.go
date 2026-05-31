@@ -437,6 +437,9 @@ func (db *treedbDB) clientAndHandle(ctx context.Context, table string) (*treedbS
 	if err != nil {
 		return nil, nil, 0, err
 	}
+	if err := db.ensureCollectionDocumentFormat(ctx, state.client, table); err != nil {
+		return nil, nil, 0, err
+	}
 	state.setHandle(table, handle)
 	return state, state.client, handle, nil
 }
@@ -540,6 +543,7 @@ func (db *treedbDB) prepareCollection(ctx context.Context, table string) error {
 	}
 	defer func() { _ = db.closeClient(client) }()
 
+	openedExisting := false
 	_, err = client.OpenCollection(ctx, table)
 	if err != nil {
 		if !isWireRemoteError(err, wireErrCollectionNotFound) {
@@ -552,6 +556,14 @@ func (db *treedbDB) prepareCollection(ctx context.Context, table string) error {
 			if _, retryErr := client.OpenCollection(ctx, table); retryErr != nil {
 				return createErr
 			}
+			openedExisting = true
+		}
+	} else {
+		openedExisting = true
+	}
+	if openedExisting {
+		if err := db.ensureCollectionDocumentFormat(ctx, client, table); err != nil {
+			return err
 		}
 	}
 	if db.createKeyIndex {
@@ -590,6 +602,68 @@ func (db *treedbDB) hasKeyIndex(ctx context.Context, client *nativeWireClient, t
 		}
 	}
 	return false, nil
+}
+
+func (db *treedbDB) ensureCollectionDocumentFormat(ctx context.Context, client *nativeWireClient, table string) error {
+	metas, err := client.ListCollections(ctx)
+	if err != nil {
+		return fmt.Errorf("treedb: verify collection %q document format: %w", table, err)
+	}
+	meta, ok := findCollectionMeta(metas, table)
+	if !ok {
+		return fmt.Errorf("treedb: collection %q was opened but was not returned by list_collections", table)
+	}
+	return db.ensureCollectionDocumentFormatMeta(table, meta)
+}
+
+func (db *treedbDB) ensureCollectionDocumentFormatMeta(table string, meta wireCollectionMeta) error {
+	want := normalizeWireDocumentFormat(db.documentFormat)
+	got := normalizeWireDocumentFormat(meta.DocumentFormat)
+	if got == want {
+		return nil
+	}
+	return fmt.Errorf(
+		"treedb: collection %q document_format=%s does not match %s=%s; use -p %s=%s for existing %s data or recreate the TreeDB database/collection for %s",
+		table,
+		wireDocumentFormatName(meta.DocumentFormat),
+		treedbDocumentFormatProp,
+		wireDocumentFormatName(db.documentFormat),
+		treedbDocumentFormatProp,
+		wireDocumentFormatName(meta.DocumentFormat),
+		wireDocumentFormatName(meta.DocumentFormat),
+		wireDocumentFormatName(db.documentFormat),
+	)
+}
+
+func findCollectionMeta(metas []wireCollectionMeta, table string) (wireCollectionMeta, bool) {
+	for _, meta := range metas {
+		if meta.Name == table {
+			return meta, true
+		}
+	}
+	return wireCollectionMeta{}, false
+}
+
+func normalizeWireDocumentFormat(format uint64) uint64 {
+	if format == wireDocumentFormatDefault {
+		return wireDocumentFormatJSON
+	}
+	return format
+}
+
+func wireDocumentFormatName(format uint64) string {
+	switch format {
+	case wireDocumentFormatDefault:
+		return "json"
+	case wireDocumentFormatJSON:
+		return "json"
+	case wireDocumentFormatBSON:
+		return "bson"
+	case wireDocumentFormatTemplateV1:
+		return "template-v1"
+	default:
+		return fmt.Sprintf("unknown(%d)", format)
+	}
 }
 
 func (db *treedbDB) clearCollection(ctx context.Context, table string) error {

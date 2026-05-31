@@ -63,6 +63,24 @@ func TestEncodeCollectionMetaUsesDocumentFormat(t *testing.T) {
 	}
 }
 
+func TestDecodeCollectionMetaVectorReadsDocumentFormat(t *testing.T) {
+	first := encodeCollectionMeta("usertable", true, treedbDefaultKeyField, wireDocumentFormatBSON)
+	second := encodeCollectionMeta("legacy", false, treedbDefaultKeyField, wireDocumentFormatJSON)
+	metas, err := decodeCollectionMetaVector(appendWireByteVector(nil, first, second))
+	if err != nil {
+		t.Fatalf("decodeCollectionMetaVector: %v", err)
+	}
+	if len(metas) != 2 {
+		t.Fatalf("decoded %d collection metas, want 2", len(metas))
+	}
+	if metas[0].Name != "usertable" || metas[0].DocumentFormat != wireDocumentFormatBSON {
+		t.Fatalf("first meta=%+v, want usertable BSON", metas[0])
+	}
+	if metas[1].Name != "legacy" || metas[1].DocumentFormat != wireDocumentFormatJSON {
+		t.Fatalf("second meta=%+v, want legacy JSON", metas[1])
+	}
+}
+
 func TestNativeWireClientCancelDeadlineStopWaitsForRunningCallback(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	conn := &blockingDeadlineConn{

@@ -258,7 +258,7 @@ Common configurations:
 |field|default value|description|
 |-|-|-|
 |treedb.addr|"127.0.0.1:7100"|TreeDB nativewire server address|
-|treedb.document_format|"bson"|Collection/document encoding for generated YCSB rows; use `json` to preserve the previous JSON encoding|
+|treedb.document_format|"bson"|Collection/document encoding for generated YCSB rows; use `json` for existing JSON nativewire collections or old-run compatibility|
 
 ### Spanner
 

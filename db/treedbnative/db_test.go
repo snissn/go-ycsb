@@ -2,6 +2,7 @@ package treedbnative
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -90,5 +91,27 @@ func TestTreeDBRowEncodingJSONOverrideRoundTrip(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, values) {
 		t.Fatalf("decodeRow=%v want %v", got, values)
+	}
+}
+
+func TestEnsureCollectionDocumentFormatMeta(t *testing.T) {
+	db := &treedbDB{documentFormat: wireDocumentFormatBSON}
+	if err := db.ensureCollectionDocumentFormatMeta("usertable", wireCollectionMeta{Name: "usertable", DocumentFormat: wireDocumentFormatBSON}); err != nil {
+		t.Fatalf("BSON collection rejected: %v", err)
+	}
+
+	err := db.ensureCollectionDocumentFormatMeta("usertable", wireCollectionMeta{Name: "usertable", DocumentFormat: wireDocumentFormatJSON})
+	if err == nil {
+		t.Fatal("JSON collection accepted by BSON client, want mismatch")
+	}
+	for _, want := range []string{"document_format=json", "treedb.document_format=bson", "-p treedb.document_format=json"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("mismatch error %q does not contain %q", err, want)
+		}
+	}
+
+	jsonDB := &treedbDB{documentFormat: wireDocumentFormatJSON}
+	if err := jsonDB.ensureCollectionDocumentFormatMeta("legacy", wireCollectionMeta{Name: "legacy", DocumentFormat: wireDocumentFormatDefault}); err != nil {
+		t.Fatalf("default-format collection should normalize to JSON: %v", err)
 	}
 }
