@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/magiconair/properties"
@@ -32,6 +34,7 @@ const (
 	treedbDefaultOpTimeout     = "0s"
 	treedbDefaultKeyField      = "_ycsb_key"
 	treedbDefaultScanBatchSize = 1024
+	treedbDefaultFlushOnClose  = true
 
 	keyIndexName = "_ycsb_key_1"
 )
@@ -63,6 +66,8 @@ type treedbDB struct {
 
 	fallbackMu sync.Mutex
 	fallback   *treedbState
+
+	loggedErrors atomic.Int64
 }
 
 type treedbState struct {
@@ -105,7 +110,7 @@ func (treedbCreator) Create(p *properties.Properties) (ycsb.DB, error) {
 		keyField:       p.GetString(treedbKeyFieldProp, treedbDefaultKeyField),
 		scanBatchSize:  p.GetInt(treedbScanBatchSizeProp, treedbDefaultScanBatchSize),
 		ack:            ack,
-		flushOnClose:   p.GetBool(treedbFlushOnCloseProp, false),
+		flushOnClose:   p.GetBool(treedbFlushOnCloseProp, treedbDefaultFlushOnClose),
 		prepared:       make(map[string]struct{}),
 		clients:        make(map[*nativeWireClient]struct{}),
 	}
@@ -326,13 +331,18 @@ func (db *treedbDB) Insert(ctx context.Context, table string, key string, values
 	defer cancel()
 	_, client, handle, err := db.clientAndHandle(ctx, table)
 	if err != nil {
+		db.logOperationError("insert_open", table, key, err)
 		return err
 	}
 	doc, err := db.encodeRow(key, values)
 	if err != nil {
 		return err
 	}
-	return client.InsertBatch(ctx, handle, keysToIDs([]string{key}), [][]byte{doc}, db.ack)
+	err = client.InsertBatch(ctx, handle, keysToIDs([]string{key}), [][]byte{doc}, db.ack)
+	if err != nil {
+		db.logOperationError("insert", table, key, err)
+	}
+	return err
 }
 
 func (db *treedbDB) BatchInsert(ctx context.Context, table string, keys []string, values []map[string][]byte) error {
@@ -346,6 +356,11 @@ func (db *treedbDB) BatchInsert(ctx context.Context, table string, keys []string
 	defer cancel()
 	_, client, handle, err := db.clientAndHandle(ctx, table)
 	if err != nil {
+		key := ""
+		if len(keys) > 0 {
+			key = keys[0]
+		}
+		db.logOperationError("batch_insert_open", table, key, err)
 		return err
 	}
 	ids := keysToIDs(keys)
@@ -356,7 +371,15 @@ func (db *treedbDB) BatchInsert(ctx context.Context, table string, keys []string
 			return err
 		}
 	}
-	return client.InsertBatch(ctx, handle, ids, docs, db.ack)
+	err = client.InsertBatch(ctx, handle, ids, docs, db.ack)
+	if err != nil {
+		key := ""
+		if len(keys) > 0 {
+			key = keys[0]
+		}
+		db.logOperationError("batch_insert", table, key, err)
+	}
+	return err
 }
 
 func (db *treedbDB) Delete(ctx context.Context, table string, key string) error {
@@ -728,6 +751,15 @@ func parseAckPolicy(raw string) (uint64, error) {
 		return wireAckSynced, nil
 	default:
 		return 0, fmt.Errorf("treedb: unsupported %s=%q", treedbAckProp, raw)
+	}
+}
+
+func (db *treedbDB) logOperationError(op, table, key string, err error) {
+	if err == nil || os.Getenv("TREEDB_YCSB_LOG_ERRORS") == "" {
+		return
+	}
+	if n := db.loggedErrors.Add(1); n <= 100 {
+		fmt.Fprintf(os.Stderr, "treedb %s error table=%s key=%s err=%v\n", op, table, key, err)
 	}
 }
 
