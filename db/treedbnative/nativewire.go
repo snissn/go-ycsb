@@ -8,7 +8,6 @@ import (
 	"io"
 	"math/bits"
 	"net"
-	"sort"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -171,21 +170,6 @@ func (e *wireRemoteError) Error() string {
 
 func wireError(code wireErrorCode, format string, args ...interface{}) error {
 	return &wireProtocolError{Code: code, Reason: fmt.Sprintf(format, args...)}
-}
-
-func wireErrorCodeOf(err error) (wireErrorCode, bool) {
-	if err == nil {
-		return 0, false
-	}
-	var protocolErr *wireProtocolError
-	if errors.As(err, &protocolErr) {
-		return protocolErr.Code, true
-	}
-	var remoteErr *wireRemoteError
-	if errors.As(err, &remoteErr) {
-		return remoteErr.Code, true
-	}
-	return 0, false
 }
 
 func isWireRemoteError(err error, code wireErrorCode) bool {
@@ -1125,7 +1109,7 @@ func decodeWireError(body []byte) error {
 	if off >= len(payload) {
 		return wireError(wireErrMalformedFrame, "missing error retryable flag")
 	}
-	retryable := false
+	var retryable bool
 	switch payload[off] {
 	case 0:
 		retryable = false
@@ -1416,18 +1400,6 @@ func readWireUvarint(src []byte) (uint64, int, error) {
 	}
 }
 
-func readWireVarint(src []byte, off *int) (int64, error) {
-	if off == nil || *off < 0 || *off > len(src) {
-		return 0, wireError(wireErrMalformedFrame, "invalid varint offset")
-	}
-	value, n := binary.Varint(src[*off:])
-	if n <= 0 {
-		return 0, wireError(wireErrMalformedFrame, "invalid varint")
-	}
-	*off += n
-	return value, nil
-}
-
 func uvarintLen(value uint64) int {
 	if value == 0 {
 		return 1
@@ -1481,18 +1453,4 @@ func decodeIndexDefinition(src []byte) (wireIndexDefinition, error) {
 		return wireIndexDefinition{}, wireError(wireErrMalformedFrame, "index_definition has %d trailing bytes", len(src)-off)
 	}
 	return wireIndexDefinition{Name: name, Field: field, Unique: unique}, nil
-}
-
-func appendSortedStringMap(dst []byte, values map[string]string) []byte {
-	keys := make([]string, 0, len(values))
-	for key := range values {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	dst = binary.AppendUvarint(dst, uint64(len(keys)))
-	for _, key := range keys {
-		dst = appendWireString(dst, key)
-		dst = appendWireString(dst, values[key])
-	}
-	return dst
 }

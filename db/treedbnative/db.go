@@ -3,6 +3,7 @@ package treedbnative
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -71,6 +72,7 @@ type treedbDB struct {
 }
 
 type treedbState struct {
+	mu              sync.RWMutex
 	client          *nativeWireClient
 	err             error
 	handles         map[string]uint64
@@ -189,11 +191,10 @@ func (db *treedbDB) CleanupThread(ctx context.Context) {
 func (db *treedbDB) Read(ctx context.Context, table string, key string, fields []string) (map[string][]byte, error) {
 	ctx, cancel := db.operationContext(ctx)
 	defer cancel()
-	state, client, handle, err := db.clientAndHandle(ctx, table)
+	_, client, handle, err := db.clientAndHandle(ctx, table)
 	if err != nil {
 		return nil, err
 	}
-	_ = state
 	docs, present, err := client.GetMany(ctx, handle, keysToIDs([]string{key}))
 	if err != nil {
 		return nil, err
@@ -240,7 +241,7 @@ func (db *treedbDB) Scan(ctx context.Context, table string, startKey string, cou
 	if err != nil {
 		return nil, err
 	}
-	if db.useScanIndex && db.createKeyIndex && !state.scanIndexBroken[table] {
+	if db.useScanIndex && db.createKeyIndex && !state.isScanIndexBroken(table) {
 		rows, err := db.scanByKeyIndex(ctx, client, handle, table, startKey, count, fields)
 		if err == nil {
 			return rows, nil
@@ -248,7 +249,7 @@ func (db *treedbDB) Scan(ctx context.Context, table string, startKey string, cou
 		if !isWireRemoteError(err, wireErrIndexNotFound) && !isWireRemoteError(err, wireErrInvalidCommand) {
 			return nil, err
 		}
-		state.scanIndexBroken[table] = true
+		state.markScanIndexBroken(table)
 	}
 	return db.scanByCursor(ctx, client, handle, startKey, count, fields)
 }
@@ -413,11 +414,10 @@ func (db *treedbDB) clientAndHandle(ctx context.Context, table string) (*treedbS
 	if err != nil {
 		return nil, nil, 0, err
 	}
-	handle, ok := state.handles[table]
-	if ok {
+	if handle, ok := state.handle(table); ok {
 		return state, state.client, handle, nil
 	}
-	handle, err = state.client.OpenCollection(ctx, table)
+	handle, err := state.client.OpenCollection(ctx, table)
 	if err != nil && isWireRemoteError(err, wireErrCollectionNotFound) && db.autoCreate {
 		if prepareErr := db.prepareCollection(ctx, table); prepareErr != nil {
 			return nil, nil, 0, prepareErr
@@ -427,8 +427,33 @@ func (db *treedbDB) clientAndHandle(ctx context.Context, table string) (*treedbS
 	if err != nil {
 		return nil, nil, 0, err
 	}
-	state.handles[table] = handle
+	state.setHandle(table, handle)
 	return state, state.client, handle, nil
+}
+
+func (s *treedbState) handle(table string) (uint64, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	handle, ok := s.handles[table]
+	return handle, ok
+}
+
+func (s *treedbState) setHandle(table string, handle uint64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.handles[table] = handle
+}
+
+func (s *treedbState) isScanIndexBroken(table string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.scanIndexBroken[table]
+}
+
+func (s *treedbState) markScanIndexBroken(table string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.scanIndexBroken[table] = true
 }
 
 func (db *treedbDB) state(ctx context.Context) (*treedbState, error) {
@@ -636,7 +661,11 @@ func (db *treedbDB) scanByCursor(ctx context.Context, client *nativeWireClient, 
 		return nil, err
 	}
 	cursorID := res.Cursor.CursorID
-	defer func() { _ = client.CursorClose(context.Background(), cursorID) }()
+	defer func() {
+		closeCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = client.CursorClose(closeCtx, cursorID)
+	}()
 	for {
 		for i, id := range res.IDs {
 			if len(out) >= count {
@@ -759,6 +788,8 @@ func (db *treedbDB) logOperationError(op, table, key string, err error) {
 	}
 	if n := db.loggedErrors.Add(1); n <= 100 {
 		fmt.Fprintf(os.Stderr, "treedb %s error table=%s key=%s err=%v\n", op, table, key, err)
+	} else if n == 101 {
+		fmt.Fprintln(os.Stderr, "treedb: error log limit reached (100), further errors suppressed")
 	}
 }
 
@@ -769,5 +800,5 @@ func appendDBError(base, next error) error {
 	if next == nil {
 		return base
 	}
-	return fmt.Errorf("%v; %w", base, next)
+	return errors.Join(base, next)
 }
