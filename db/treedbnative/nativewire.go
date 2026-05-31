@@ -670,15 +670,22 @@ func (c *nativeWireClient) interruptDeadlineOnContextCancel(ctx context.Context)
 		return func() {}
 	}
 	done := make(chan struct{})
+	stopped := make(chan struct{})
 	var once sync.Once
 	go func() {
+		defer close(stopped)
 		select {
 		case <-ctx.Done():
 			_ = c.conn.SetDeadline(time.Now())
 		case <-done:
 		}
 	}()
-	return func() { once.Do(func() { close(done) }) }
+	return func() {
+		once.Do(func() {
+			close(done)
+			<-stopped
+		})
+	}
 }
 
 func (c *nativeWireClient) errorOrCanceled(ctx context.Context, err error) error {
