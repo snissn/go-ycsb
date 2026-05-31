@@ -438,6 +438,7 @@ func (db *treedbDB) clientAndHandle(ctx context.Context, table string) (*treedbS
 		return nil, nil, 0, err
 	}
 	if err := db.ensureCollectionDocumentFormat(ctx, state.client, table); err != nil {
+		err = appendDBError(err, state.client.CloseCollection(ctx, handle))
 		return nil, nil, 0, err
 	}
 	state.setHandle(table, handle)
@@ -544,7 +545,7 @@ func (db *treedbDB) prepareCollection(ctx context.Context, table string) error {
 	defer func() { _ = db.closeClient(client) }()
 
 	openedExisting := false
-	_, err = client.OpenCollection(ctx, table)
+	handle, err := client.OpenCollection(ctx, table)
 	if err != nil {
 		if !isWireRemoteError(err, wireErrCollectionNotFound) {
 			return err
@@ -553,7 +554,9 @@ func (db *treedbDB) prepareCollection(ctx context.Context, table string) error {
 			return err
 		}
 		if createErr := client.CreateCollection(ctx, table, db.createKeyIndex, db.keyField, db.documentFormat); createErr != nil {
-			if _, retryErr := client.OpenCollection(ctx, table); retryErr != nil {
+			var retryErr error
+			handle, retryErr = client.OpenCollection(ctx, table)
+			if retryErr != nil {
 				return createErr
 			}
 			openedExisting = true
@@ -562,6 +565,9 @@ func (db *treedbDB) prepareCollection(ctx context.Context, table string) error {
 		openedExisting = true
 	}
 	if openedExisting {
+		if err := client.CloseCollection(ctx, handle); err != nil {
+			return err
+		}
 		if err := db.ensureCollectionDocumentFormat(ctx, client, table); err != nil {
 			return err
 		}
