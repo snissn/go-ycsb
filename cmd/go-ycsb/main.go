@@ -80,6 +80,8 @@ import (
 	_ "github.com/pingcap/go-ycsb/db/s3"
 	// Register TreeDB database
 	_ "github.com/pingcap/go-ycsb/db/treedb"
+	// Register TreeDB nativewire database
+	_ "github.com/pingcap/go-ycsb/db/treedbnative"
 )
 
 var (
