@@ -253,6 +253,13 @@ Common configurations:
 |treedb.flush_build_concurrency|0 (auto)|Parallelism for building flush batches|
 |treedb.disable_background_prune|false|Disable background pruning (keep on write path)|
 
+### TreeDB Native
+
+|field|default value|description|
+|-|-|-|
+|treedb.addr|"127.0.0.1:7100"|TreeDB nativewire server address|
+|treedb.document_format|"bson"|Collection/document encoding for generated YCSB rows; use `json` for existing JSON nativewire collections or old-run compatibility|
+
 ### Spanner
 
 |field|default value|description|

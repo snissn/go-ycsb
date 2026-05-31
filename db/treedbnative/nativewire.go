@@ -77,8 +77,9 @@ type wireCommandID uint64
 
 const (
 	wireCommandCreateCollection wireCommandID = 10
-	wireCommandListIndexes      wireCommandID = 13
+	wireCommandListCollections  wireCommandID = 11
 	wireCommandCreateIndex      wireCommandID = 12
+	wireCommandListIndexes      wireCommandID = 13
 	wireCommandOpenCollection   wireCommandID = 15
 	wireCommandCloseCollection  wireCommandID = 16
 	wireCommandInsertBatch      wireCommandID = 30
@@ -99,8 +100,10 @@ const (
 )
 
 const (
-	wireDocumentFormatDefault uint64 = 0
-	wireDocumentFormatJSON    uint64 = 1
+	wireDocumentFormatDefault    uint64 = 0
+	wireDocumentFormatJSON       uint64 = 1
+	wireDocumentFormatBSON       uint64 = 2
+	wireDocumentFormatTemplateV1 uint64 = 3
 )
 
 const (
@@ -280,12 +283,12 @@ func (c *nativeWireClient) CurrentCatalogVersion(ctx context.Context) (uint64, e
 	return version, nil
 }
 
-func (c *nativeWireClient) CreateCollection(ctx context.Context, name string, withKeyIndex bool, keyField string) error {
+func (c *nativeWireClient) CreateCollection(ctx context.Context, name string, withKeyIndex bool, keyField string, documentFormat uint64) error {
 	guard, err := c.replicatedMetadataGuard(ctx, "create_collection")
 	if err != nil {
 		return err
 	}
-	sections := append(guard, wireSection{ID: wireSectionCollectionMeta, Bytes: encodeCollectionMeta(name, withKeyIndex, keyField)})
+	sections := append(guard, wireSection{ID: wireSectionCollectionMeta, Bytes: encodeCollectionMeta(name, withKeyIndex, keyField, documentFormat)})
 	response, err := c.command(ctx, 0, wireCommandCreateCollection, 0, sections)
 	if err != nil {
 		c.clearCatalogVersionOnMismatch(err)
@@ -311,6 +314,21 @@ func (c *nativeWireClient) CreateIndex(ctx context.Context, collection, indexNam
 	}
 	c.updateCatalogVersionFromResponse(response)
 	return nil
+}
+
+func (c *nativeWireClient) ListCollections(ctx context.Context) ([]wireCollectionMeta, error) {
+	sections, err := c.command(ctx, 0, wireCommandListCollections, 0, nil)
+	if err != nil {
+		return nil, err
+	}
+	raw, ok, err := singletonWireSection(sections, wireSectionCollectionMeta)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, wireError(wireErrMalformedFrame, "list_collections missing collection_meta")
+	}
+	return decodeCollectionMetaVector(raw)
 }
 
 func (c *nativeWireClient) ListIndexes(ctx context.Context, collection string) ([]wireIndexDefinition, error) {
@@ -411,10 +429,10 @@ func (c *nativeWireClient) GetMany(ctx context.Context, handle uint64, ids [][]b
 	return docs, present, nil
 }
 
-func (c *nativeWireClient) InsertBatch(ctx context.Context, handle uint64, ids, docs [][]byte, ack uint64) error {
+func (c *nativeWireClient) InsertBatch(ctx context.Context, handle uint64, ids, docs [][]byte, documentFormat uint64, ack uint64) error {
 	return c.mutationWithRetry(ctx, "insert_batch", func(guard []wireSection) ([]wireSection, error) {
 		c.requestMu.Lock()
-		body, err := appendInsertBatchBody(c.requestBody[:0], handle, ids, docs, ack, wireCommandFlagOmitResultIDs, guard)
+		body, err := appendInsertBatchBody(c.requestBody[:0], handle, ids, docs, documentFormat, ack, wireCommandFlagOmitResultIDs, guard)
 		if err != nil {
 			c.requestMu.Unlock()
 			return nil, err
@@ -426,11 +444,11 @@ func (c *nativeWireClient) InsertBatch(ctx context.Context, handle uint64, ids, 
 	})
 }
 
-func (c *nativeWireClient) ReplaceBatch(ctx context.Context, handle uint64, ids, docs [][]byte, ack uint64) error {
+func (c *nativeWireClient) ReplaceBatch(ctx context.Context, handle uint64, ids, docs [][]byte, documentFormat uint64, ack uint64) error {
 	return c.mutationWithRetry(ctx, "replace_batch", func(guard []wireSection) ([]wireSection, error) {
 		sections := append(guard,
 			collectionHandleRef(handle),
-			wireSection{ID: wireSectionDocumentFormat, Bytes: binary.AppendUvarint(nil, wireDocumentFormatJSON)},
+			wireSection{ID: wireSectionDocumentFormat, Bytes: binary.AppendUvarint(nil, documentFormat)},
 			wireSection{ID: wireSectionDocumentIDs, Bytes: appendWireByteVector(nil, ids...)},
 			wireSection{ID: wireSectionDocuments, Bytes: appendWireByteVector(nil, docs...)},
 			wireSection{ID: wireSectionReplacementMode, Bytes: binary.AppendUvarint(nil, 1)},
@@ -747,13 +765,13 @@ func appendGetManyBody(dst []byte, handle uint64, ids [][]byte) ([]byte, error) 
 	return appendWireSections(dst, sections)
 }
 
-func appendInsertBatchBody(dst []byte, handle uint64, ids, docs [][]byte, ack uint64, commandFlags uint64, guard []wireSection) ([]byte, error) {
+func appendInsertBatchBody(dst []byte, handle uint64, ids, docs [][]byte, documentFormat uint64, ack uint64, commandFlags uint64, guard []wireSection) ([]byte, error) {
 	sections := make([]wireSection, 0, len(guard)+6)
 	sections = append(sections, wireSection{ID: wireSectionCommandHeader, Bytes: appendWireCommandHeader(nil, wireCommandInsertBatch, 1, commandFlags)})
 	sections = append(sections, guard...)
 	sections = append(sections,
 		collectionHandleRef(handle),
-		wireSection{ID: wireSectionDocumentFormat, Bytes: binary.AppendUvarint(nil, wireDocumentFormatJSON)},
+		wireSection{ID: wireSectionDocumentFormat, Bytes: binary.AppendUvarint(nil, documentFormat)},
 		wireSection{ID: wireSectionDocumentIDs, Bytes: appendWireByteVector(nil, ids...)},
 		wireSection{ID: wireSectionDocuments, Bytes: appendWireByteVector(nil, docs...)},
 	)
@@ -806,21 +824,21 @@ func collectionHandleRef(handle uint64) wireSection {
 	return wireSection{ID: wireSectionCollectionRef, Bytes: payload}
 }
 
-func encodeCollectionMeta(name string, withKeyIndex bool, keyField string) []byte {
-	dst := binary.AppendUvarint(nil, 2) // collection_meta version
-	dst = appendWireString(dst, name)   // name
-	dst = binary.AppendUvarint(dst, 1)  // JSON document_format
-	dst = binary.AppendUvarint(dst, 0)  // default data root storage
-	dst = binary.AppendUvarint(dst, 0)  // default index root storage
-	dst = appendWireBool(dst, false)    // allow array values in index
-	dst = appendWireBool(dst, false)    // disable indexed write memtables
-	dst = appendWireBool(dst, false)    // buffered indexed writes
-	dst = binary.AppendVarint(dst, 0)   // buffered indexed max docs
-	dst = binary.AppendVarint(dst, 0)   // buffered indexed max bytes
-	dst = binary.AppendVarint(dst, 0)   // buffered indexed max root runs
-	dst = appendWireBool(dst, false)    // async flush
-	dst = appendWireBool(dst, false)    // overlay roots
-	dst = binary.AppendVarint(dst, 0)   // async flush max queued units
+func encodeCollectionMeta(name string, withKeyIndex bool, keyField string, documentFormat uint64) []byte {
+	dst := binary.AppendUvarint(nil, 2)             // collection_meta version
+	dst = appendWireString(dst, name)               // name
+	dst = binary.AppendUvarint(dst, documentFormat) // document_format
+	dst = binary.AppendUvarint(dst, 0)              // default data root storage
+	dst = binary.AppendUvarint(dst, 0)              // default index root storage
+	dst = appendWireBool(dst, false)                // allow array values in index
+	dst = appendWireBool(dst, false)                // disable indexed write memtables
+	dst = appendWireBool(dst, false)                // buffered indexed writes
+	dst = binary.AppendVarint(dst, 0)               // buffered indexed max docs
+	dst = binary.AppendVarint(dst, 0)               // buffered indexed max bytes
+	dst = binary.AppendVarint(dst, 0)               // buffered indexed max root runs
+	dst = appendWireBool(dst, false)                // async flush
+	dst = appendWireBool(dst, false)                // overlay roots
+	dst = binary.AppendVarint(dst, 0)               // async flush max queued units
 	if withKeyIndex && keyField != "" {
 		dst = binary.AppendUvarint(dst, 1) // index count
 		dst = appendIndexDefinitionNoVersion(dst, keyIndexName, keyField, true)
@@ -1407,11 +1425,190 @@ func readWireUvarint(src []byte) (uint64, int, error) {
 	}
 }
 
+func readWireVarint(src []byte) (int64, int, error) {
+	value, n := binary.Varint(src)
+	switch {
+	case n > 0:
+		return value, n, nil
+	case n == 0:
+		return 0, 0, wireError(wireErrMalformedFrame, "invalid varint")
+	default:
+		return 0, 0, wireError(wireErrMalformedFrame, "varint overflow")
+	}
+}
+
 func uvarintLen(value uint64) int {
 	if value == 0 {
 		return 1
 	}
 	return (bits.Len64(value) + 6) / 7
+}
+
+type wireCollectionMeta struct {
+	Name           string
+	DocumentFormat uint64
+}
+
+func decodeCollectionMetaVector(src []byte) ([]wireCollectionMeta, error) {
+	items, err := decodeWireByteVector(src)
+	if err != nil {
+		return nil, err
+	}
+	metas := make([]wireCollectionMeta, 0, len(items))
+	for _, item := range items {
+		meta, err := decodeCollectionMeta(item)
+		if err != nil {
+			return nil, err
+		}
+		metas = append(metas, meta)
+	}
+	return metas, nil
+}
+
+func decodeCollectionMeta(src []byte) (wireCollectionMeta, error) {
+	off := 0
+	version, n, err := readWireUvarint(src)
+	if err != nil {
+		return wireCollectionMeta{}, err
+	}
+	if version != 1 && version != 2 {
+		return wireCollectionMeta{}, wireError(wireErrUnsupportedVersion, "collection_meta version %d", version)
+	}
+	off += n
+	name, err := readWireString(src, &off)
+	if err != nil {
+		return wireCollectionMeta{}, err
+	}
+	documentFormat, n, err := readWireUvarint(src[off:])
+	if err != nil {
+		return wireCollectionMeta{}, err
+	}
+	off += n
+	if err := skipCollectionMetaRemainder(src, &off, version); err != nil {
+		return wireCollectionMeta{}, err
+	}
+	if off != len(src) {
+		return wireCollectionMeta{}, wireError(wireErrMalformedFrame, "collection_meta has %d trailing bytes", len(src)-off)
+	}
+	return wireCollectionMeta{Name: name, DocumentFormat: documentFormat}, nil
+}
+
+func skipCollectionMetaRemainder(src []byte, off *int, version uint64) error {
+	if err := skipWireUvarint(src, off); err != nil {
+		return err
+	}
+	if err := skipWireUvarint(src, off); err != nil {
+		return err
+	}
+	for i := 0; i < 3; i++ {
+		if _, err := readWireBool(src, off); err != nil {
+			return err
+		}
+	}
+	for i := 0; i < 3; i++ {
+		if err := skipWireVarint(src, off); err != nil {
+			return err
+		}
+	}
+	for i := 0; i < 2; i++ {
+		if _, err := readWireBool(src, off); err != nil {
+			return err
+		}
+	}
+	if err := skipWireVarint(src, off); err != nil {
+		return err
+	}
+	indexCount, n, err := readWireUvarint(src[*off:])
+	if err != nil {
+		return err
+	}
+	*off += n
+	if indexCount > uint64((len(src)-*off)/6) {
+		return wireError(wireErrResourceExhausted, "collection_meta index count %d exceeds payload", indexCount)
+	}
+	for i := uint64(0); i < indexCount; i++ {
+		if err := skipIndexDefinitionNoVersion(src, off); err != nil {
+			return err
+		}
+	}
+	if version < 2 {
+		return nil
+	}
+	vectorIndexCount, n, err := readWireUvarint(src[*off:])
+	if err != nil {
+		return err
+	}
+	*off += n
+	if vectorIndexCount > uint64((len(src)-*off)/7) {
+		return wireError(wireErrResourceExhausted, "collection_meta vector index count %d exceeds payload", vectorIndexCount)
+	}
+	for i := uint64(0); i < vectorIndexCount; i++ {
+		if err := skipVectorIndexDefinitionNoVersion(src, off); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func skipIndexDefinitionNoVersion(src []byte, off *int) error {
+	if _, err := readWireString(src, off); err != nil {
+		return err
+	}
+	if _, err := readWireString(src, off); err != nil {
+		return err
+	}
+	if err := skipWireUvarint(src, off); err != nil {
+		return err
+	}
+	if _, err := readWireBool(src, off); err != nil {
+		return err
+	}
+	if _, err := readWireBool(src, off); err != nil {
+		return err
+	}
+	return skipWireUvarint(src, off)
+}
+
+func skipVectorIndexDefinitionNoVersion(src []byte, off *int) error {
+	if _, err := readWireString(src, off); err != nil {
+		return err
+	}
+	if _, err := readWireString(src, off); err != nil {
+		return err
+	}
+	if err := skipWireUvarint(src, off); err != nil {
+		return err
+	}
+	for i := 0; i < 4; i++ {
+		if err := skipWireVarint(src, off); err != nil {
+			return err
+		}
+	}
+	return skipWireUvarint(src, off)
+}
+
+func skipWireUvarint(src []byte, off *int) error {
+	if off == nil || *off > len(src) {
+		return wireError(wireErrMalformedFrame, "invalid uvarint offset")
+	}
+	_, n, err := readWireUvarint(src[*off:])
+	if err != nil {
+		return err
+	}
+	*off += n
+	return nil
+}
+
+func skipWireVarint(src []byte, off *int) error {
+	if off == nil || *off > len(src) {
+		return wireError(wireErrMalformedFrame, "invalid varint offset")
+	}
+	_, n, err := readWireVarint(src[*off:])
+	if err != nil {
+		return err
+	}
+	*off += n
+	return nil
 }
 
 type wireIndexDefinition struct {
