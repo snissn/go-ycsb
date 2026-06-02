@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/bsontype"
 )
 
 func TestParseDocumentFormatDefaultsToBSON(t *testing.T) {
@@ -77,6 +78,111 @@ func TestTreeDBRowEncodingBSONRoundTrip(t *testing.T) {
 	wantProjected := map[string][]byte{"field1": []byte{0, 1, 2, 3}}
 	if !reflect.DeepEqual(projected, wantProjected) {
 		t.Fatalf("decodeRow projected=%v want %v", projected, wantProjected)
+	}
+}
+
+func TestTreeDBBSONSetFieldsForUpdate(t *testing.T) {
+	db := &treedbDB{keyField: treedbDefaultKeyField, documentFormat: wireDocumentFormatBSON}
+	fields, ok, err := db.bsonSetFieldsForUpdate(map[string][]byte{
+		"field0":              []byte("alpha"),
+		treedbDefaultKeyField: []byte("ignored"),
+	})
+	if err != nil {
+		t.Fatalf("bsonSetFieldsForUpdate: %v", err)
+	}
+	if !ok {
+		t.Fatal("bsonSetFieldsForUpdate ok=false, want true")
+	}
+	if len(fields) != 1 || fields[0].Key != "field0" {
+		t.Fatalf("fields=%+v want one field0", fields)
+	}
+	raw := fields[0].RawValue
+	if len(raw) != 1+4+1+len("alpha") {
+		t.Fatalf("raw len=%d want %d", len(raw), 1+4+1+len("alpha"))
+	}
+	if raw[0] != byte(bsontype.Binary) {
+		t.Fatalf("raw type=%d want BSON binary", raw[0])
+	}
+	if got := binary.LittleEndian.Uint32(raw[1:5]); got != uint32(len("alpha")) {
+		t.Fatalf("binary len=%d want %d", got, len("alpha"))
+	}
+	if raw[5] != 0 || string(raw[6:]) != "alpha" {
+		t.Fatalf("binary subtype/value=%d/%q want 0/alpha", raw[5], raw[6:])
+	}
+}
+
+func TestTreeDBBSONSetFieldsForUpdateFallbacks(t *testing.T) {
+	jsonDB := &treedbDB{keyField: treedbDefaultKeyField, documentFormat: wireDocumentFormatJSON}
+	if _, ok, err := jsonDB.bsonSetFieldsForUpdate(map[string][]byte{"field0": []byte("alpha")}); err != nil || ok {
+		t.Fatalf("JSON bsonSetFieldsForUpdate ok=%v err=%v want fallback", ok, err)
+	}
+
+	db := &treedbDB{keyField: treedbDefaultKeyField, documentFormat: wireDocumentFormatBSON}
+	for _, values := range []map[string][]byte{
+		{treedbDefaultKeyField: []byte("ignored")},
+		{"": []byte("alpha")},
+		{"_id": []byte("alpha")},
+		{"$set": []byte("alpha")},
+		{"a.b": []byte("alpha")},
+		{"a\x00b": []byte("alpha")},
+	} {
+		if _, ok, err := db.bsonSetFieldsForUpdate(values); err != nil || ok {
+			t.Fatalf("bsonSetFieldsForUpdate(%v) ok=%v err=%v want fallback", values, ok, err)
+		}
+	}
+}
+
+func TestAppendUpdateBSONSetBody(t *testing.T) {
+	fields := []wireBSONSetField{{Key: "field0", RawValue: mustBSONBinaryRawValue(t, []byte("alpha"))}}
+	body, err := appendUpdateBSONSetBody(nil, 99, []byte("user1"), fields, wireAckVisible, []wireSection{
+		{ID: wireSectionIdempotencyKey, Bytes: []byte("id1")},
+		{ID: wireSectionExpectedCatalog, Bytes: binary.AppendUvarint(nil, 7)},
+	})
+	if err != nil {
+		t.Fatalf("appendUpdateBSONSetBody: %v", err)
+	}
+	if id, err := testDecodeCommandID(body); err != nil || id != wireCommandUpdateBSONSet {
+		t.Fatalf("command id=%d err=%v want update_bson_set", id, err)
+	}
+	sections, err := decodeWireSections(body)
+	if err != nil {
+		t.Fatalf("decodeWireSections: %v", err)
+	}
+	if handle, err := testDecodeCollectionHandle(body); err != nil || handle != 99 {
+		t.Fatalf("collection handle=%d err=%v want 99", handle, err)
+	}
+	rawIDs, ok, err := singletonWireSection(sections, wireSectionDocumentIDs)
+	if err != nil || !ok {
+		t.Fatalf("document ids section ok=%v err=%v", ok, err)
+	}
+	ids, err := decodeWireByteVector(rawIDs)
+	if err != nil {
+		t.Fatalf("decode ids: %v", err)
+	}
+	if len(ids) != 1 || string(ids[0]) != "user1" {
+		t.Fatalf("ids=%q want user1", ids)
+	}
+	rawNames, ok, err := singletonWireSection(sections, wireSectionUpdateFieldNames)
+	if err != nil || !ok {
+		t.Fatalf("field names section ok=%v err=%v", ok, err)
+	}
+	names, err := decodeWireByteVector(rawNames)
+	if err != nil {
+		t.Fatalf("decode names: %v", err)
+	}
+	if len(names) != 1 || string(names[0]) != "field0" {
+		t.Fatalf("names=%q want field0", names)
+	}
+	rawValues, ok, err := singletonWireSection(sections, wireSectionUpdateFieldValues)
+	if err != nil || !ok {
+		t.Fatalf("field values section ok=%v err=%v", ok, err)
+	}
+	values, err := decodeWireByteVector(rawValues)
+	if err != nil {
+		t.Fatalf("decode values: %v", err)
+	}
+	if len(values) != 1 || !reflect.DeepEqual(values[0], fields[0].RawValue) {
+		t.Fatalf("values=%v want %v", values, fields[0].RawValue)
 	}
 }
 
@@ -261,6 +367,15 @@ func testWriteResponse(conn net.Conn, requestID uint64, sections []wireSection) 
 		return err
 	}
 	return writeWireFrame(conn, wireHeader{Type: wireFrameResponse, RequestID: requestID}, body)
+}
+
+func mustBSONBinaryRawValue(t *testing.T, value []byte) []byte {
+	t.Helper()
+	raw, err := bsonBinaryRawValue(value)
+	if err != nil {
+		t.Fatalf("bsonBinaryRawValue: %v", err)
+	}
+	return raw
 }
 
 func errorsIsClosed(err error) bool {
