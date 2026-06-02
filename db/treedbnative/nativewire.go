@@ -49,28 +49,30 @@ const (
 type wireSectionID uint64
 
 const (
-	wireSectionCommandHeader    wireSectionID = 1
-	wireSectionError            wireSectionID = 2
-	wireSectionAckPolicy        wireSectionID = 6
-	wireSectionIdempotencyKey   wireSectionID = 8
-	wireSectionResponseMeta     wireSectionID = 11
-	wireSectionCursorMeta       wireSectionID = 12
-	wireSectionCollectionRef    wireSectionID = 100
-	wireSectionDocumentFormat   wireSectionID = 101
-	wireSectionDocumentIDs      wireSectionID = 102
-	wireSectionDocuments        wireSectionID = 103
-	wireSectionExpectedCatalog  wireSectionID = 105
-	wireSectionReplacementMode  wireSectionID = 106
-	wireSectionCollectionMeta   wireSectionID = 107
-	wireSectionIndexDefinition  wireSectionID = 108
-	wireSectionIndexName        wireSectionID = 109
-	wireSectionCollectionHandle wireSectionID = 110
-	wireSectionIndexLowerBound  wireSectionID = 112
-	wireSectionIndexUpperBound  wireSectionID = 113
-	wireSectionCursorRef        wireSectionID = 114
-	wireSectionCursorLimits     wireSectionID = 115
-	wireSectionPresenceBitmap   wireSectionID = 116
-	wireSectionTruncated        wireSectionID = 117
+	wireSectionCommandHeader     wireSectionID = 1
+	wireSectionError             wireSectionID = 2
+	wireSectionAckPolicy         wireSectionID = 6
+	wireSectionIdempotencyKey    wireSectionID = 8
+	wireSectionResponseMeta      wireSectionID = 11
+	wireSectionCursorMeta        wireSectionID = 12
+	wireSectionCollectionRef     wireSectionID = 100
+	wireSectionDocumentFormat    wireSectionID = 101
+	wireSectionDocumentIDs       wireSectionID = 102
+	wireSectionDocuments         wireSectionID = 103
+	wireSectionExpectedCatalog   wireSectionID = 105
+	wireSectionReplacementMode   wireSectionID = 106
+	wireSectionCollectionMeta    wireSectionID = 107
+	wireSectionIndexDefinition   wireSectionID = 108
+	wireSectionIndexName         wireSectionID = 109
+	wireSectionCollectionHandle  wireSectionID = 110
+	wireSectionIndexLowerBound   wireSectionID = 112
+	wireSectionIndexUpperBound   wireSectionID = 113
+	wireSectionCursorRef         wireSectionID = 114
+	wireSectionCursorLimits      wireSectionID = 115
+	wireSectionPresenceBitmap    wireSectionID = 116
+	wireSectionTruncated         wireSectionID = 117
+	wireSectionUpdateFieldNames  wireSectionID = 121
+	wireSectionUpdateFieldValues wireSectionID = 122
 )
 
 type wireCommandID uint64
@@ -86,6 +88,7 @@ const (
 	wireCommandReplaceBatch     wireCommandID = 31
 	wireCommandDeleteBatch      wireCommandID = 32
 	wireCommandFlushAll         wireCommandID = 34
+	wireCommandUpdateBSONSet    wireCommandID = 36
 	wireCommandGetMany          wireCommandID = 50
 	wireCommandIndexRange       wireCommandID = 52
 	wireCommandOpenScan         wireCommandID = 53
@@ -206,6 +209,11 @@ type nativeWireClient struct {
 	requestBody           []byte
 	writeBody             []byte
 	readBody              []byte
+}
+
+type wireBSONSetField struct {
+	Key      string
+	RawValue []byte
 }
 
 func dialNativeWire(ctx context.Context, network, address string, timeout time.Duration) (*nativeWireClient, error) {
@@ -460,6 +468,29 @@ func (c *nativeWireClient) ReplaceBatch(ctx context.Context, handle uint64, ids,
 	})
 }
 
+func (c *nativeWireClient) UpdateBSONSet(ctx context.Context, handle uint64, id []byte, fields []wireBSONSetField, ack uint64) (int, int, error) {
+	var response []wireSection
+	err := c.mutationWithRetry(ctx, "update_bson_set", func(guard []wireSection) ([]wireSection, error) {
+		c.requestMu.Lock()
+		body, err := appendUpdateBSONSetBody(c.requestBody[:0], handle, id, fields, ack, guard)
+		if err != nil {
+			c.requestMu.Unlock()
+			return nil, err
+		}
+		sections, err := c.roundTripCommandBody(ctx, 0, body)
+		c.requestBody = body[:0]
+		c.requestMu.Unlock()
+		if err == nil {
+			response = sections
+		}
+		return sections, err
+	})
+	if err != nil {
+		return 0, 0, err
+	}
+	return mutationCountsFromResponse(response, "matched_count", "modified_count")
+}
+
 func (c *nativeWireClient) DeleteBatch(ctx context.Context, handle uint64, ids [][]byte, ack uint64) error {
 	return c.mutationWithRetry(ctx, "delete_batch", func(guard []wireSection) ([]wireSection, error) {
 		sections := append(guard,
@@ -609,6 +640,50 @@ func catalogVersionFromResponseMeta(sections []wireSection) (uint64, bool, error
 		return 0, true, wireError(wireErrMalformedFrame, "invalid catalog_version %q", rawVersion)
 	}
 	return version, true, nil
+}
+
+func mutationCountsFromResponse(sections []wireSection, count1Name, count2Name string) (int, int, error) {
+	raw, ok, err := singletonWireSection(sections, wireSectionResponseMeta)
+	if err != nil {
+		return 0, 0, err
+	}
+	if !ok {
+		return 0, 0, wireError(wireErrMalformedFrame, "mutation response missing response_meta")
+	}
+	values, err := decodeWireStringMap(raw)
+	if err != nil {
+		return 0, 0, err
+	}
+	count1, ok, err := parseResponseCount(values, count1Name)
+	if err != nil {
+		return 0, 0, err
+	}
+	if !ok {
+		return 0, 0, wireError(wireErrMalformedFrame, "mutation response missing %s", count1Name)
+	}
+	count2, ok, err := parseResponseCount(values, count2Name)
+	if err != nil {
+		return 0, 0, err
+	}
+	if !ok {
+		return 0, 0, wireError(wireErrMalformedFrame, "mutation response missing %s", count2Name)
+	}
+	return count1, count2, nil
+}
+
+func parseResponseCount(values map[string]string, name string) (int, bool, error) {
+	raw, ok := values[name]
+	if !ok {
+		return 0, false, nil
+	}
+	value, err := strconv.ParseUint(raw, 10, 64)
+	if err != nil {
+		return 0, true, wireError(wireErrMalformedFrame, "invalid %s %q", name, raw)
+	}
+	if value > uint64(maxInt) {
+		return 0, true, wireError(wireErrResourceExhausted, "%s exceeds int capacity", name)
+	}
+	return int(value), true, nil
 }
 
 func (c *nativeWireClient) command(ctx context.Context, streamID uint64, commandID wireCommandID, commandFlags uint64, sections []wireSection) ([]wireSection, error) {
@@ -779,6 +854,44 @@ func appendInsertBatchBody(dst []byte, handle uint64, ids, docs [][]byte, docume
 		sections = append(sections, wireSection{ID: wireSectionAckPolicy, Bytes: binary.AppendUvarint(nil, ack)})
 	}
 	return appendWireSections(dst, sections)
+}
+
+func appendUpdateBSONSetBody(dst []byte, handle uint64, id []byte, fields []wireBSONSetField, ack uint64, guard []wireSection) ([]byte, error) {
+	sections := make([]wireSection, 0, len(guard)+6)
+	sections = append(sections, wireSection{ID: wireSectionCommandHeader, Bytes: appendWireCommandHeader(nil, wireCommandUpdateBSONSet, 1, 0)})
+	sections = append(sections, guard...)
+	sections = append(sections,
+		collectionHandleRef(handle),
+		wireSection{ID: wireSectionDocumentIDs, Bytes: appendWireByteVector(nil, id)},
+		wireSection{ID: wireSectionUpdateFieldNames, Bytes: appendBSONSetFieldNames(nil, fields)},
+		wireSection{ID: wireSectionUpdateFieldValues, Bytes: appendBSONSetFieldValues(nil, fields)},
+	)
+	if ack != 0 {
+		sections = append(sections, wireSection{ID: wireSectionAckPolicy, Bytes: binary.AppendUvarint(nil, ack)})
+	}
+	return appendWireSections(dst, sections)
+}
+
+func appendBSONSetFieldNames(dst []byte, fields []wireBSONSetField) []byte {
+	dst = binary.AppendUvarint(dst, uint64(len(fields)))
+	for _, field := range fields {
+		dst = binary.AppendUvarint(dst, uint64(len(field.Key)))
+	}
+	for _, field := range fields {
+		dst = append(dst, field.Key...)
+	}
+	return dst
+}
+
+func appendBSONSetFieldValues(dst []byte, fields []wireBSONSetField) []byte {
+	dst = binary.AppendUvarint(dst, uint64(len(fields)))
+	for _, field := range fields {
+		dst = binary.AppendUvarint(dst, uint64(len(field.RawValue)))
+	}
+	for _, field := range fields {
+		dst = append(dst, field.RawValue...)
+	}
+	return dst
 }
 
 func appendWireSections(dst []byte, sections []wireSection) ([]byte, error) {

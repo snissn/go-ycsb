@@ -2,6 +2,7 @@ package treedbnative
 
 import (
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -271,6 +272,18 @@ func (db *treedbDB) Update(ctx context.Context, table string, key string, values
 	if err != nil {
 		return err
 	}
+	if fields, ok, err := db.bsonSetFieldsForUpdate(values); err != nil {
+		return err
+	} else if ok {
+		matched, _, err := client.UpdateBSONSet(ctx, handle, []byte(key), fields, db.ack)
+		if err != nil {
+			return err
+		}
+		if matched == 0 {
+			return fmt.Errorf("treedb: key %q not found in table %q", key, table)
+		}
+		return nil
+	}
 	docs, present, err := client.GetMany(ctx, handle, keysToIDs([]string{key}))
 	if err != nil {
 		return err
@@ -293,6 +306,52 @@ func (db *treedbDB) Update(ctx context.Context, table string, key string, values
 		return err
 	}
 	return client.ReplaceBatch(ctx, handle, keysToIDs([]string{key}), [][]byte{doc}, db.documentFormat, db.ack)
+}
+
+func (db *treedbDB) bsonSetFieldsForUpdate(values map[string][]byte) ([]wireBSONSetField, bool, error) {
+	if db.documentFormat != wireDocumentFormatBSON {
+		return nil, false, nil
+	}
+	fields := make([]wireBSONSetField, 0, len(values))
+	for field, value := range values {
+		if field == db.keyField {
+			continue
+		}
+		if !validTopLevelBSONSetField(field) {
+			return nil, false, nil
+		}
+		rawValue, err := bsonBinaryRawValue(value)
+		if err != nil {
+			return nil, false, err
+		}
+		fields = append(fields, wireBSONSetField{Key: field, RawValue: rawValue})
+	}
+	if len(fields) == 0 {
+		return nil, false, nil
+	}
+	return fields, true, nil
+}
+
+func validTopLevelBSONSetField(field string) bool {
+	if field == "" || field == "_id" {
+		return false
+	}
+	if strings.HasPrefix(field, "$") || strings.Contains(field, ".") || strings.Contains(field, "\x00") {
+		return false
+	}
+	return true
+}
+
+func bsonBinaryRawValue(value []byte) ([]byte, error) {
+	if len(value) > (1<<31)-1 {
+		return nil, fmt.Errorf("treedb: BSON binary value length %d exceeds int32 capacity", len(value))
+	}
+	raw := make([]byte, 1+4+1+len(value))
+	raw[0] = byte(bsontype.Binary)
+	binary.LittleEndian.PutUint32(raw[1:5], uint32(len(value)))
+	raw[5] = 0
+	copy(raw[6:], value)
+	return raw, nil
 }
 
 func (db *treedbDB) BatchUpdate(ctx context.Context, table string, keys []string, values []map[string][]byte) error {
