@@ -1584,7 +1584,7 @@ func decodeCollectionMeta(src []byte) (wireCollectionMeta, error) {
 	if err != nil {
 		return wireCollectionMeta{}, err
 	}
-	if version != 1 && version != 2 {
+	if version < 1 || version > 5 {
 		return wireCollectionMeta{}, wireError(wireErrUnsupportedVersion, "collection_meta version %d", version)
 	}
 	off += n

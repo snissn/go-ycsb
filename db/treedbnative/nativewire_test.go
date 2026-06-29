@@ -81,6 +81,18 @@ func TestDecodeCollectionMetaVectorReadsDocumentFormat(t *testing.T) {
 	}
 }
 
+func TestDecodeCollectionMetaAcceptsCurrentNoVectorVersion(t *testing.T) {
+	raw := encodeCollectionMeta("usertable", false, treedbDefaultKeyField, wireDocumentFormatBSON)
+	raw[0] = 5
+	meta, err := decodeCollectionMeta(raw)
+	if err != nil {
+		t.Fatalf("decodeCollectionMeta: %v", err)
+	}
+	if meta.Name != "usertable" || meta.DocumentFormat != wireDocumentFormatBSON {
+		t.Fatalf("meta=%+v, want usertable BSON", meta)
+	}
+}
+
 func TestNativeWireClientCancelDeadlineStopWaitsForRunningCallback(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	conn := &blockingDeadlineConn{
