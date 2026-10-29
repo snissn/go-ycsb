@@ -98,7 +98,8 @@ var (
 	globalProps    *properties.Properties
 )
 
-func initialGlobal(dbName string, onProperties func()) {
+func initialGlobal(databaseName string, onProperties func()) {
+	dbName = databaseName
 	globalProps = properties.NewProperties()
 	if len(propertyFiles) > 0 {
 		globalProps = properties.MustLoadFiles(propertyFiles, properties.UTF8, false)
@@ -139,12 +140,12 @@ func initialGlobal(dbName string, onProperties func()) {
 		util.Fatalf("create workload %s failed %v", workloadName, err)
 	}
 
-	dbCreator := ycsb.GetDBCreator(dbName)
+	dbCreator := ycsb.GetDBCreator(databaseName)
 	if dbCreator == nil {
-		util.Fatalf("%s is not registered", dbName)
+		util.Fatalf("%s is not registered", databaseName)
 	}
 	if globalDB, err = dbCreator.Create(globalProps); err != nil {
-		util.Fatalf("create db %s failed %v", dbName, err)
+		util.Fatalf("create db %s failed %v", databaseName, err)
 	}
 	globalDB = client.DbWrapper{globalDB}
 }
@@ -191,18 +192,16 @@ func main() {
 
 	cobra.EnablePrefixMatching = true
 
-	if err := rootCmd.Execute(); err != nil {
+	commandErr := rootCmd.Execute()
+	if commandErr != nil {
 		fmt.Println(rootCmd.UsageString())
 	}
 
 	globalCancel()
-	if globalDB != nil {
-		globalDB.Close()
-	}
-
-	if globalWorkload != nil {
-		globalWorkload.Close()
-	}
-
+	cleanupErr := finishCommand(commandErr, globalDB, globalWorkload, receiptEnvironment())
 	closeDone <- struct{}{}
+	if cleanupErr != nil {
+		fmt.Fprintln(os.Stderr, cleanupErr)
+		os.Exit(1)
+	}
 }

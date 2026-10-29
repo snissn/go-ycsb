@@ -1,0 +1,1 @@
+go build -tags "libsqlite3" -o bin/go-ycsb cmd/go-ycsb/*

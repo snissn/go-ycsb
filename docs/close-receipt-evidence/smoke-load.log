@@ -1,0 +1,21 @@
+Using request distribution 'uniform' a keyrange of [0 999]
+***************** properties *****************
+"requestdistribution"="uniform"
+"table"="usertable"
+"readproportion"="0.5"
+"insertproportion"="0"
+"treedb.dir"="/mnt/fast4tb/ycsb-close-5335-20261029/smoke-db"
+"dotransactions"="false"
+"scanproportion"="0"
+"recordcount"="1000"
+"operationcount"="1000"
+"dropdata"="true"
+"command"="load"
+"workload"="core"
+"readallfields"="true"
+"updateproportion"="0.5"
+**********************************************
+**********************************************
+Run finished, takes 10.466368ms
+INSERT - Takes(s): 0.0, Count: 1000, OPS: 95778.4, Avg(us): 2, Min(us): 1, Max(us): 422, 50th(us): 1, 90th(us): 3, 95th(us): 3, 99th(us): 11, 99.9th(us): 375, 99.99th(us): 422
+TOTAL  - Takes(s): 0.0, Count: 1000, OPS: 96012.6, Avg(us): 2, Min(us): 1, Max(us): 422, 50th(us): 1, 90th(us): 3, 95th(us): 3, 99th(us): 11, 99.9th(us): 375, 99.99th(us): 422

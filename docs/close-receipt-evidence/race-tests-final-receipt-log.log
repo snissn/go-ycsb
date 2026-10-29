@@ -1,0 +1,95 @@
+=== RUN   TestCleanupPreservesAllErrorsAndContinues
+--- PASS: TestCleanupPreservesAllErrorsAndContinues (0.00s)
+=== RUN   TestCloseReceiptExclusiveAndWriteFailureStillCleansUp
+--- PASS: TestCloseReceiptExclusiveAndWriteFailureStillCleansUp (0.00s)
+=== RUN   TestCloseReceiptChecksWriteAndClose
+=== RUN   TestCloseReceiptChecksWriteAndClose/write
+=== RUN   TestCloseReceiptChecksWriteAndClose/close
+=== RUN   TestCloseReceiptChecksWriteAndClose/short
+--- PASS: TestCloseReceiptChecksWriteAndClose (0.00s)
+    --- PASS: TestCloseReceiptChecksWriteAndClose/write (0.00s)
+    --- PASS: TestCloseReceiptChecksWriteAndClose/close (0.00s)
+    --- PASS: TestCloseReceiptChecksWriteAndClose/short (0.00s)
+=== RUN   TestMissingReceiptIdentityStillCleansUp
+--- PASS: TestMissingReceiptIdentityStillCleansUp (0.00s)
+=== RUN   TestCommandAndReceiptWriteFailuresAreFatal
+=== RUN   TestCommandAndReceiptWriteFailuresAreFatal/command
+=== RUN   TestCommandAndReceiptWriteFailuresAreFatal/receipt-write
+--- PASS: TestCommandAndReceiptWriteFailuresAreFatal (0.13s)
+    --- PASS: TestCommandAndReceiptWriteFailuresAreFatal/command (0.07s)
+    --- PASS: TestCommandAndReceiptWriteFailuresAreFatal/receipt-write (0.06s)
+=== RUN   TestCloseFailureAfterTotalsIsFatal
+    close_receipt_test.go:37: original client output:
+        Using request distribution 'uniform' a keyrange of [0 1]
+        ***************** properties *****************
+        "table"="usertable"
+        "fieldcount"="1"
+        "treedb.operation_timeout"="2s"
+        "treedb.address"="127.0.0.1:38527"
+        "threadcount"="1"
+        "dotransactions"="false"
+        "recordcount"="2"
+        "operationcount"="2"
+        "fieldlength"="4"
+        "treedb.autocreate"="false"
+        "treedb.create_key_index"="false"
+        "workload"="close-test"
+        "command"="load"
+        **********************************************
+        **********************************************
+        Run finished, takes 890.694µs
+        INSERT - Takes(s): 0.0, Count: 2, OPS: 4606.3, Avg(us): 233, Min(us): 141, Max(us): 325, 50th(us): 141, 90th(us): 325, 95th(us): 325, 99th(us): 325, 99.9th(us): 325, 99.99th(us): 325
+        TOTAL  - Takes(s): 0.0, Count: 2, OPS: 3226.9, Avg(us): 233, Min(us): 141, Max(us): 325, 50th(us): 141, 90th(us): 325, 95th(us): 325, 99th(us): 325, 99.9th(us): 325, 99.99th(us): 325
+        EOF
+        close tcp 127.0.0.1:50042->127.0.0.1:38527: use of closed network connection
+    close_receipt_test.go:51: original close receipt:
+        {"schema_version":1,"phase_id":"test-load","client_build_id":"test-build","db":"treedb-native","phase":"load","declared_profile":"test-profile","total_excludes_close":true,"command":{"attempted":true,"success":true,"error":"","start_utc":"0001-01-01T00:00:00Z","end_utc":"0001-01-01T00:00:00Z","elapsed_ns":0},"db_close":{"attempted":true,"success":false,"error":"EOF\nclose tcp 127.0.0.1:50042-\u003e127.0.0.1:38527: use of closed network connection","start_utc":"2026-10-29T22:14:00.433560026Z","end_utc":"2026-10-29T22:14:00.433840801Z","elapsed_ns":280776},"workload_close":{"attempted":true,"success":true,"error":"","start_utc":"2026-10-29T22:14:00.433845625Z","end_utc":"2026-10-29T22:14:00.433904779Z","elapsed_ns":59155},"native_flush":{"applicable":true,"flush_enabled":true,"ack":1,"dial":{"attempted":true,"success":true,"error":"","start_utc":"2026-10-29T22:14:00.433562847Z","end_utc":"2026-10-29T22:14:00.433724896Z","elapsed_ns":162053},"flush":{"attempted":true,"success":false,"error":"EOF","start_utc":"2026-10-29T22:14:00.433725495Z","end_utc":"2026-10-29T22:14:00.43382483Z","elapsed_ns":99341},"connection_close":{"attempted":true,"success":false,"error":"close tcp 127.0.0.1:50042-\u003e127.0.0.1:38527: use of closed network connection","start_utc":"2026-10-29T22:14:00.433825816Z","end_utc":"2026-10-29T22:14:00.433834754Z","elapsed_ns":8937}}}
+--- PASS: TestCloseFailureAfterTotalsIsFatal (0.07s)
+PASS
+ok  	github.com/pingcap/go-ycsb/cmd/go-ycsb	1.270s
+=== RUN   TestParseDocumentFormatDefaultsToBSON
+--- PASS: TestParseDocumentFormatDefaultsToBSON (0.00s)
+=== RUN   TestTreeDBRowEncodingBSONRoundTrip
+--- PASS: TestTreeDBRowEncodingBSONRoundTrip (0.00s)
+=== RUN   TestTreeDBBSONSetFieldsForUpdate
+--- PASS: TestTreeDBBSONSetFieldsForUpdate (0.00s)
+=== RUN   TestTreeDBBSONSetFieldsForUpdateFallbacks
+--- PASS: TestTreeDBBSONSetFieldsForUpdateFallbacks (0.00s)
+=== RUN   TestAppendUpdateBSONSetBody
+--- PASS: TestAppendUpdateBSONSetBody (0.00s)
+=== RUN   TestTreeDBRowEncodingJSONOverrideRoundTrip
+--- PASS: TestTreeDBRowEncodingJSONOverrideRoundTrip (0.00s)
+=== RUN   TestEnsureCollectionDocumentFormatMeta
+--- PASS: TestEnsureCollectionDocumentFormatMeta (0.00s)
+=== RUN   TestClientAndHandleClosesHandleOnDocumentFormatMismatch
+--- PASS: TestClientAndHandleClosesHandleOnDocumentFormatMismatch (0.00s)
+=== RUN   TestNativeCloseReceiptCapturesFlushAllResult
+=== RUN   TestNativeCloseReceiptCapturesFlushAllResult/success
+=== RUN   TestNativeCloseReceiptCapturesFlushAllResult/flush_failure
+=== RUN   TestNativeCloseReceiptCapturesFlushAllResult/hello_failure
+=== RUN   TestNativeCloseReceiptCapturesFlushAllResult/dial_failure
+=== RUN   TestNativeCloseReceiptCapturesFlushAllResult/disabled
+--- PASS: TestNativeCloseReceiptCapturesFlushAllResult (0.00s)
+    --- PASS: TestNativeCloseReceiptCapturesFlushAllResult/success (0.00s)
+    --- PASS: TestNativeCloseReceiptCapturesFlushAllResult/flush_failure (0.00s)
+    --- PASS: TestNativeCloseReceiptCapturesFlushAllResult/hello_failure (0.00s)
+    --- PASS: TestNativeCloseReceiptCapturesFlushAllResult/dial_failure (0.00s)
+    --- PASS: TestNativeCloseReceiptCapturesFlushAllResult/disabled (0.00s)
+=== RUN   TestNativeCloseReceiptCapturesConnectionError
+--- PASS: TestNativeCloseReceiptCapturesConnectionError (0.00s)
+=== RUN   TestAppendInsertBatchBodyUsesDocumentFormat
+--- PASS: TestAppendInsertBatchBodyUsesDocumentFormat (0.00s)
+=== RUN   TestEncodeCollectionMetaUsesDocumentFormat
+--- PASS: TestEncodeCollectionMetaUsesDocumentFormat (0.00s)
+=== RUN   TestDecodeCollectionMetaVectorReadsDocumentFormat
+--- PASS: TestDecodeCollectionMetaVectorReadsDocumentFormat (0.00s)
+=== RUN   TestDecodeCollectionMetaAcceptsCurrentNoVectorVersion
+--- PASS: TestDecodeCollectionMetaAcceptsCurrentNoVectorVersion (0.00s)
+=== RUN   TestNativeWireClientCancelDeadlineStopWaitsForRunningCallback
+--- PASS: TestNativeWireClientCancelDeadlineStopWaitsForRunningCallback (0.03s)
+PASS
+ok  	github.com/pingcap/go-ycsb/db/treedbnative	1.036s
+=== RUN   TestDbWrapperForwardsCloseReportWithoutClosing
+--- PASS: TestDbWrapperForwardsCloseReportWithoutClosing (0.00s)
+PASS
+ok  	github.com/pingcap/go-ycsb/pkg/client	1.007s

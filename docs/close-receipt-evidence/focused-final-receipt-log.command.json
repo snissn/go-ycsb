@@ -1,0 +1,27 @@
+{
+  "name": "focused-final-receipt-log",
+  "argv": [
+    "/home/mikers/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.10.linux-amd64/bin/go",
+    "test",
+    "-p=1",
+    "./cmd/go-ycsb",
+    "./db/treedbnative",
+    "./pkg/client",
+    "./pkg/ycsb",
+    "-count=1",
+    "-v"
+  ],
+  "cwd": "/mnt/fast4tb/ycsb-close-5335-20261029/repo",
+  "environment": {
+    "GOWORK": "off",
+    "GOTOOLCHAIN": "local",
+    "GOCACHE": "/home/mikers/gomap-mongo-ycsb-20261029/build/cache",
+    "GOMODCACHE": "/home/mikers/gomap-mongo-ycsb-20261029/build/modcache",
+    "TMPDIR": "/home/mikers/ycsb-close-5335-20261029-tmp",
+    "GOMAXPROCS": "2"
+  },
+  "start_utc": "2026-10-29T22:13:53.180266+00:00",
+  "end_utc": "2026-10-29T22:13:55.306280+00:00",
+  "returncode": 0,
+  "note": "GOMAXPROCS=2 only package/test/smoke controls; not product qualification."
+}

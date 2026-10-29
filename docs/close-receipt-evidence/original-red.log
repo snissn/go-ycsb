@@ -1,0 +1,24 @@
+=== RUN   TestCloseFailureAfterTotalsIsFatal
+    close_receipt_test.go:27: original client output:
+        Using request distribution 'uniform' a keyrange of [0 1]
+        ***************** properties *****************
+        "table"="usertable"
+        "treedb.autocreate"="false"
+        "treedb.create_key_index"="false"
+        "treedb.operation_timeout"="2s"
+        "dotransactions"="false"
+        "fieldlength"="4"
+        "command"="load"
+        "treedb.address"="127.0.0.1:37503"
+        "recordcount"="2"
+        "operationcount"="2"
+        "threadcount"="1"
+        "fieldcount"="1"
+        **********************************************
+        **********************************************
+        Run finished, takes 1.112089ms
+        INSERT - Takes(s): 0.0, Count: 2, OPS: 5600.6, Avg(us): 334, Min(us): 248, Max(us): 420, 50th(us): 248, 90th(us): 420, 95th(us): 420, 99th(us): 420, 99.9th(us): 420, 99.99th(us): 420
+        TOTAL  - Takes(s): 0.0, Count: 2, OPS: 5580.7, Avg(us): 334, Min(us): 248, Max(us): 420, 50th(us): 248, 90th(us): 420, 95th(us): 420, 99th(us): 420, 99.9th(us): 420, 99.99th(us): 420
+    close_receipt_test.go:30: client exited successfully after original Close/FlushAll failed
+--- FAIL: TestCloseFailureAfterTotalsIsFatal (0.03s)
+FAIL

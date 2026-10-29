@@ -38,7 +38,7 @@ func Test_core_buildKeyName(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			c := core{p: properties.MustLoadFiles([]string{"workloads/workloadc"}, properties.UTF8, false)}
+			c := core{p: properties.MustLoadFiles([]string{"../../workloads/workloadc"}, properties.UTF8, false)}
 			if got := c.buildKeyName(tt.args.keyNum); got != tt.want {
 				t.Errorf("buildKeyName() = %v, want %v", got, tt.want)
 			}

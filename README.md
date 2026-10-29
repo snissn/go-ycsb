@@ -110,6 +110,11 @@ Available Commands:
 |measurementtype|"histogram"|The mechanism for recording measurements, one of `histogram`, `raw` or `csv`|
 |measurement.output_file|""|File to write output to, default writes to stdout|
 
+Cleanup failures return a nonzero exit status after the normal measurement output.
+Set `YCSB_CLOSE_RECEIPT_PATH`, `YCSB_PHASE_ID` and `YCSB_CLIENT_BUILD_ID` for an
+exclusive per-phase [checked cleanup receipt](docs/close-receipts.md). TOTAL
+continues to exclude cleanup time.
+
 ## Database Configuration
 
 You can pass the database configurations through `-p field=value` in the command line directly.

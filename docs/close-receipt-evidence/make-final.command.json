@@ -1,0 +1,19 @@
+{
+  "name": "make-final",
+  "argv": [
+    "make"
+  ],
+  "cwd": "/mnt/fast4tb/ycsb-close-5335-20261029/repo",
+  "environment": {
+    "GOWORK": "off",
+    "GOTOOLCHAIN": "local",
+    "GOCACHE": "/home/mikers/gomap-mongo-ycsb-20261029/build/cache",
+    "GOMODCACHE": "/home/mikers/gomap-mongo-ycsb-20261029/build/modcache",
+    "TMPDIR": "/home/mikers/ycsb-close-5335-20261029-tmp",
+    "GOMAXPROCS": "2"
+  },
+  "start_utc": "2026-10-29T22:13:33.353131+00:00",
+  "end_utc": "2026-10-29T22:13:37.293749+00:00",
+  "returncode": 0,
+  "note": "GOMAXPROCS=2 only package/test/smoke controls; not product qualification."
+}
