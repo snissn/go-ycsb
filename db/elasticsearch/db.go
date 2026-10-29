@@ -71,7 +71,7 @@ func (m *elastic) Read(ctx context.Context, table string, key string, fields []s
 	res, err := m.cli.Get(m.indexName, key)
 	if err != nil {
 		if m.verbose {
-			fmt.Println("Cannot read document %d: %s", key, err)
+			fmt.Printf("Cannot read document %s: %s\n", key, err)
 		}
 		return nil, err
 	}
@@ -91,7 +91,7 @@ func (m *elastic) Insert(ctx context.Context, table string, key string, values m
 	data, err := json.Marshal(values)
 	if err != nil {
 		if m.verbose {
-			fmt.Println("Cannot encode document %d: %s", key, err)
+			fmt.Printf("Cannot encode document %s: %s\n", key, err)
 		}
 		return err
 	}
@@ -123,7 +123,7 @@ func (m *elastic) Insert(ctx context.Context, table string, key string, values m
 	)
 	if err != nil {
 		if m.verbose {
-			fmt.Println("Unexpected error while bulk inserting: %s", err)
+			fmt.Printf("Unexpected error while bulk inserting: %s\n", err)
 		}
 		return err
 	}
@@ -135,7 +135,7 @@ func (m *elastic) Update(ctx context.Context, table string, key string, values m
 	data, err := json.Marshal(values)
 	if err != nil {
 		if m.verbose {
-			fmt.Println("Cannot encode document %d: %s", key, err)
+			fmt.Printf("Cannot encode document %s: %s\n", key, err)
 		}
 		return err
 	}
@@ -167,7 +167,7 @@ func (m *elastic) Update(ctx context.Context, table string, key string, values m
 	)
 	if err != nil {
 		if m.verbose {
-			fmt.Println("Unexpected error while bulk updating: %s", err)
+			fmt.Printf("Unexpected error while bulk updating: %s\n", err)
 		}
 		return err
 	}
@@ -201,7 +201,7 @@ func (m *elastic) Delete(ctx context.Context, table string, key string) error {
 	)
 	if err != nil {
 		if m.verbose {
-			fmt.Println("Unexpected error while bulk deleting: %s", err)
+			fmt.Printf("Unexpected error while bulk deleting: %s\n", err)
 		}
 		return err
 	}
@@ -297,7 +297,7 @@ func (c elasticCreator) Create(p *properties.Properties) (ycsb.DB, error) {
 		Refresh: bulkIndexerRefresh,
 	})
 	if err != nil {
-		fmt.Println("Error creating the elastic indexer: %s", err)
+		fmt.Printf("Error creating the elastic indexer: %s\n", err)
 		return nil, err
 	}
 
