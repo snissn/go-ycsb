@@ -16,6 +16,7 @@ package ycsb
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/magiconair/properties"
 )
@@ -117,4 +118,52 @@ func RegisterDBCreator(name string, creator DBCreator) {
 // GetDBCreator gets the DBCreator for the database
 func GetDBCreator(name string) DBCreator {
 	return dbCreators[name]
+}
+
+// CloseReporter optionally exposes a snapshot of the original Close call.
+// Reading it must never initiate another Close or flush.
+type CloseReporter interface {
+	CloseReport() DBCloseReport
+}
+
+// CloseResult describes one actual call. A skipped call has Attempted=false;
+// Success is true only when that call returned nil.
+type CloseResult struct {
+	Attempted bool      `json:"attempted"`
+	Success   bool      `json:"success"`
+	Error     string    `json:"error"`
+	StartUTC  time.Time `json:"start_utc"`
+	EndUTC    time.Time `json:"end_utc"`
+	ElapsedNS int64     `json:"elapsed_ns"`
+}
+
+// StartCloseResult starts an observation without affecting the measured call.
+func StartCloseResult() (CloseResult, time.Time) {
+	start := time.Now()
+	return CloseResult{Attempted: true, StartUTC: start.UTC()}, start
+}
+
+// Finish records the actual return and monotonic elapsed duration.
+func (r *CloseResult) Finish(start time.Time, err error) {
+	end := time.Now()
+	r.EndUTC, r.ElapsedNS, r.Success = end.UTC(), end.Sub(start).Nanoseconds(), err == nil
+	if err != nil {
+		r.Error = err.Error()
+	}
+}
+
+// NativeFlushReport is not applicable for backends without a native flush.
+// Disabled flush is explicitly skipped, never a successful required flush.
+type NativeFlushReport struct {
+	Applicable      bool        `json:"applicable"`
+	FlushEnabled    bool        `json:"flush_enabled"`
+	ACK             uint64      `json:"ack"`
+	Dial            CloseResult `json:"dial"`
+	Flush           CloseResult `json:"flush"`
+	ConnectionClose CloseResult `json:"connection_close"`
+}
+
+// DBCloseReport contains backend-specific evidence from the original Close.
+type DBCloseReport struct {
+	NativeFlush NativeFlushReport `json:"native_flush"`
 }

@@ -3,6 +3,7 @@ package treedbnative
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -380,4 +381,141 @@ func mustBSONBinaryRawValue(t *testing.T, value []byte) []byte {
 
 func errorsIsClosed(err error) bool {
 	return err == io.EOF || strings.Contains(err.Error(), "closed")
+}
+
+func TestNativeCloseReceiptCapturesFlushAllResult(t *testing.T) {
+	for _, mode := range []string{"success", "flush_failure", "hello_failure", "dial_failure", "disabled"} {
+		t.Run(mode, func(t *testing.T) {
+			address := "127.0.0.1:1"
+			var observedACK uint64
+			done := make(chan error, 1)
+			if mode != "dial_failure" && mode != "disabled" {
+				listener, err := net.Listen("tcp", "127.0.0.1:0")
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer listener.Close()
+				address = listener.Addr().String()
+				go func() {
+					conn, err := listener.Accept()
+					if err != nil {
+						done <- err
+						return
+					}
+					defer conn.Close()
+					conn.SetDeadline(time.Now().Add(3 * time.Second))
+					header, _, err := readWireFrameInto(conn, nil)
+					if err != nil {
+						done <- err
+						return
+					}
+					if header.Type != wireFrameHello {
+						done <- fmt.Errorf("want HELLO, got %d", header.Type)
+						return
+					}
+					if mode == "hello_failure" {
+						done <- nil
+						return
+					}
+					if err := writeWireFrame(conn, wireHeader{Type: wireFrameHelloOK, RequestID: header.RequestID}, nil); err != nil {
+						done <- err
+						return
+					}
+					header, body, err := readWireFrameInto(conn, nil)
+					if err != nil {
+						done <- err
+						return
+					}
+					id, err := testDecodeCommandID(body)
+					if err != nil || id != wireCommandFlushAll {
+						done <- fmt.Errorf("want original FlushAll, got %d: %v", id, err)
+						return
+					}
+					sections, err := decodeWireSections(body)
+					if err != nil {
+						done <- err
+						return
+					}
+					raw, ok, err := singletonWireSection(sections, wireSectionAckPolicy)
+					if err != nil || !ok {
+						done <- fmt.Errorf("missing ACK: %v", err)
+						return
+					}
+					observedACK, _, err = readWireUvarint(raw)
+					if err != nil {
+						done <- err
+						return
+					}
+					if mode == "flush_failure" {
+						done <- nil
+						return
+					}
+					done <- testWriteResponse(conn, header.RequestID, nil)
+				}()
+			} else if mode == "dial_failure" {
+				listener, err := net.Listen("tcp", "127.0.0.1:0")
+				if err != nil {
+					t.Fatal(err)
+				}
+				address = listener.Addr().String()
+				listener.Close()
+			}
+			db := &treedbDB{network: "tcp", address: address, dialTimeout: time.Second, operationLimit: time.Second, ack: wireAckSynced, flushOnClose: mode != "disabled", clients: make(map[*nativeWireClient]struct{})}
+			err := db.Close()
+			if mode != "dial_failure" && mode != "disabled" {
+				if serverErr := <-done; serverErr != nil {
+					t.Fatal(serverErr)
+				}
+			}
+			report := db.CloseReport().NativeFlush
+			if !report.Applicable || report.FlushEnabled != (mode != "disabled") || report.ACK != wireAckSynced {
+				t.Fatalf("wrong configuration: %+v", report)
+			}
+			if mode == "disabled" {
+				if err != nil || report.Dial.Attempted || report.Flush.Attempted || report.Flush.Success {
+					t.Fatalf("disabled flush not skipped: err=%v %+v", err, report)
+				}
+				return
+			}
+			if !report.Dial.Attempted || report.Dial.ElapsedNS <= 0 {
+				t.Fatalf("missing dial observation: %+v", report)
+			}
+			if mode == "dial_failure" || mode == "hello_failure" {
+				if err == nil || report.Dial.Success || report.Dial.Error == "" || report.Flush.Attempted {
+					t.Fatalf("failed dial not retained: err=%v %+v", err, report)
+				}
+				return
+			}
+			if observedACK != wireAckSynced || !report.Flush.Attempted || report.Flush.ElapsedNS <= 0 || !report.Dial.Success || !report.ConnectionClose.Attempted {
+				t.Fatalf("missing original call: ACK=%d %+v", observedACK, report)
+			}
+			if (err == nil) != (mode == "success") || report.Flush.Success != (mode == "success") || (report.Flush.Error == "") != (mode == "success") {
+				t.Fatalf("wrong actual return: err=%v %+v", err, report)
+			}
+			if report != db.CloseReport().NativeFlush {
+				t.Fatal("snapshot changed on read")
+			}
+		})
+	}
+}
+
+type closeErrorConn struct {
+	net.Conn
+	closeErr error
+}
+
+func (c closeErrorConn) Close() error { return errors.Join(c.Conn.Close(), c.closeErr) }
+func TestNativeCloseReceiptCapturesConnectionError(t *testing.T) {
+	left, right := net.Pipe()
+	defer right.Close()
+	want := errors.New("actual connection close failure")
+	client := &nativeWireClient{conn: closeErrorConn{Conn: left, closeErr: want}}
+	db := &treedbDB{clients: map[*nativeWireClient]struct{}{client: {}}}
+	if err := db.Close(); !errors.Is(err, want) {
+		t.Fatalf("lost actual connection error: %v", err)
+	}
+	report := db.CloseReport().NativeFlush
+	if report.Flush.Attempted || !report.ConnectionClose.Attempted || report.ConnectionClose.Success || report.ConnectionClose.Error == "" {
+		t.Fatalf("wrong connection return snapshot: %+v", report)
+	}
 }

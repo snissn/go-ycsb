@@ -42,6 +42,14 @@ func (db DbWrapper) Close() error {
 	return db.DB.Close()
 }
 
+// CloseReport forwards the original snapshot without repeating cleanup.
+func (db DbWrapper) CloseReport() ycsb.DBCloseReport {
+	if reporter, ok := db.DB.(ycsb.CloseReporter); ok {
+		return reporter.CloseReport()
+	}
+	return ycsb.DBCloseReport{}
+}
+
 func (db DbWrapper) InitThread(ctx context.Context, threadID int, threadCount int) context.Context {
 	return db.DB.InitThread(ctx, threadID, threadCount)
 }

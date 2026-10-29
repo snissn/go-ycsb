@@ -74,6 +74,9 @@ type treedbDB struct {
 	fallbackMu sync.Mutex
 	fallback   *treedbState
 
+	closeReportMu sync.Mutex
+	closeReport   ycsb.DBCloseReport
+
 	loggedErrors atomic.Int64
 }
 
@@ -149,20 +152,30 @@ func (treedbCreator) Create(p *properties.Properties) (ycsb.DB, error) {
 }
 
 func (db *treedbDB) Close() error {
-	var out error
+	var out, connectionErr error
+	report := ycsb.NativeFlushReport{Applicable: true, FlushEnabled: db.flushOnClose, ACK: db.ack}
+	var connectionStart time.Time
+
 	if db.flushOnClose {
 		ctx, cancel := db.operationContext(context.Background())
+		var start time.Time
+		report.Dial, start = ycsb.StartCloseResult()
 		client, err := db.dial(ctx)
+		report.Dial.Finish(start, err)
 		if err == nil {
+			report.Flush, start = ycsb.StartCloseResult()
 			err = client.FlushAll(ctx, db.ack)
+			report.Flush.Finish(start, err)
 		}
 		if client != nil {
-			err = appendDBError(err, db.closeClient(client))
+			report.ConnectionClose, connectionStart = ycsb.StartCloseResult()
+			closeErr := db.closeClient(client)
+			connectionErr = appendDBError(connectionErr, closeErr)
+			err = appendDBError(err, closeErr)
 		}
 		cancel()
 		out = appendDBError(out, err)
 	}
-
 	db.clientsMu.Lock()
 	clients := make([]*nativeWireClient, 0, len(db.clients))
 	for client := range db.clients {
@@ -170,11 +183,28 @@ func (db *treedbDB) Close() error {
 	}
 	db.clients = make(map[*nativeWireClient]struct{})
 	db.clientsMu.Unlock()
-
 	for _, client := range clients {
-		out = appendDBError(out, client.Close())
+		if !report.ConnectionClose.Attempted {
+			report.ConnectionClose, connectionStart = ycsb.StartCloseResult()
+		}
+		err := client.Close()
+		connectionErr = appendDBError(connectionErr, err)
+		out = appendDBError(out, err)
 	}
+	if report.ConnectionClose.Attempted {
+		report.ConnectionClose.Finish(connectionStart, connectionErr)
+	}
+	db.closeReportMu.Lock()
+	db.closeReport = ycsb.DBCloseReport{NativeFlush: report}
+	db.closeReportMu.Unlock()
 	return out
+}
+
+// CloseReport returns the snapshot captured by the original Close, with no I/O.
+func (db *treedbDB) CloseReport() ycsb.DBCloseReport {
+	db.closeReportMu.Lock()
+	defer db.closeReportMu.Unlock()
+	return db.closeReport
 }
 
 func (db *treedbDB) InitThread(ctx context.Context, _ int, _ int) context.Context {

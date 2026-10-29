@@ -1,0 +1,12 @@
+# github.com/pingcap/go-ycsb/db/elasticsearch
+db/elasticsearch/db.go:74:4: fmt.Println call has possible Printf formatting directive %d
+db/elasticsearch/db.go:94:4: fmt.Println call has possible Printf formatting directive %d
+db/elasticsearch/db.go:126:4: fmt.Println call has possible Printf formatting directive %s
+db/elasticsearch/db.go:138:4: fmt.Println call has possible Printf formatting directive %d
+db/elasticsearch/db.go:170:4: fmt.Println call has possible Printf formatting directive %s
+db/elasticsearch/db.go:204:4: fmt.Println call has possible Printf formatting directive %s
+db/elasticsearch/db.go:300:3: fmt.Println call has possible Printf formatting directive %s
+FAIL	github.com/pingcap/go-ycsb/db/elasticsearch [build failed]
+2026/10/29 12:10:12 open workloads/workloadc: no such file or directory
+FAIL	github.com/pingcap/go-ycsb/pkg/workload	0.002s
+FAIL

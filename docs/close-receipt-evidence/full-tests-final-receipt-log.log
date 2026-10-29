@@ -1,0 +1,31 @@
+ok  	github.com/pingcap/go-ycsb/cmd/go-ycsb	0.164s
+?   	github.com/pingcap/go-ycsb/db/aerospike	[no test files]
+?   	github.com/pingcap/go-ycsb/db/badger	[no test files]
+?   	github.com/pingcap/go-ycsb/db/basic	[no test files]
+?   	github.com/pingcap/go-ycsb/db/boltdb	[no test files]
+?   	github.com/pingcap/go-ycsb/db/cassandra	[no test files]
+?   	github.com/pingcap/go-ycsb/db/dynamodb	[no test files]
+?   	github.com/pingcap/go-ycsb/db/elasticsearch	[no test files]
+?   	github.com/pingcap/go-ycsb/db/etcd	[no test files]
+?   	github.com/pingcap/go-ycsb/db/foundationdb	[no test files]
+?   	github.com/pingcap/go-ycsb/db/minio	[no test files]
+?   	github.com/pingcap/go-ycsb/db/mongodb	[no test files]
+?   	github.com/pingcap/go-ycsb/db/mysql	[no test files]
+?   	github.com/pingcap/go-ycsb/db/pegasus	[no test files]
+?   	github.com/pingcap/go-ycsb/db/pg	[no test files]
+?   	github.com/pingcap/go-ycsb/db/redis	[no test files]
+?   	github.com/pingcap/go-ycsb/db/rocksdb	[no test files]
+ok  	github.com/pingcap/go-ycsb/db/s3	0.008s
+?   	github.com/pingcap/go-ycsb/db/spanner	[no test files]
+?   	github.com/pingcap/go-ycsb/db/sqlite	[no test files]
+?   	github.com/pingcap/go-ycsb/db/tikv	[no test files]
+?   	github.com/pingcap/go-ycsb/db/treedb	[no test files]
+ok  	github.com/pingcap/go-ycsb/db/treedbnative	0.028s
+ok  	github.com/pingcap/go-ycsb/pkg/client	0.002s
+?   	github.com/pingcap/go-ycsb/pkg/generator	[no test files]
+?   	github.com/pingcap/go-ycsb/pkg/measurement	[no test files]
+?   	github.com/pingcap/go-ycsb/pkg/prop	[no test files]
+ok  	github.com/pingcap/go-ycsb/pkg/util	0.002s
+ok  	github.com/pingcap/go-ycsb/pkg/workload	0.002s
+?   	github.com/pingcap/go-ycsb/pkg/ycsb	[no test files]
+?   	github.com/pingcap/go-ycsb/tool	[no test files]
