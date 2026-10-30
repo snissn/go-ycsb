@@ -32,9 +32,11 @@ record `start_utc`, `end_utc` and monotonic `elapsed_ns`. Command timing fields
 are zero: only its actual return is observed. A skipped call has attempted and
 success false, zero timestamps/duration and an empty error.
 
-`native_flush` contains `applicable`, `flush_enabled`, actual numeric `ack`
-(visible=1, flushed=2, synced=3), `dial`, `flush`, and aggregate
-`connection_close`. Native dial includes HELLO. Dial failure leaves flush
+`native_flush` contains `applicable`, `flush_enabled`, the requested numeric `ack`
+passed to FlushAll (visible=1, flushed=2, synced=3), `dial`, `flush`, and aggregate
+`connection_close`. The receipt does not decode an actual server-returned ACK;
+a launcher must obtain any required server ACK evidence separately. Native dial
+includes HELLO. Dial failure leaves flush
 unattempted and preserves the actual dial error. Disabled flush is skipped,
 not a successful required flush. Connection cleanup retains its actual errors.
 The optional typed `ycsb.CloseReporter` returns the snapshot from the original
